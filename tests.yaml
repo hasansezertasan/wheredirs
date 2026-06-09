@@ -34,6 +34,15 @@ which_strategy:
   - name: "freebsd-picks-xdg"
     input: ["freebsd"]
     output: "xdg"
+  - name: "openbsd-picks-xdg"
+    input: ["openbsd"]
+    output: "xdg"
+  - name: "netbsd-picks-xdg"
+    input: ["netbsd"]
+    output: "xdg"
+  - name: "dragonfly-picks-xdg"
+    input: ["dragonfly"]
+    output: "xdg"
 
 # =============================================================================
 # XDG strategy (explicit and auto on linux/macOS)
@@ -168,6 +177,41 @@ xdg:
     env: { HOME: "/home/alice", XDG_CACHE_HOME: "/var/cache/alice/" }
     output: "$XDG_CACHE_HOME/MyApp"
     description: "Trailing slash on env var stripped before joining"
+
+  - name: "xdg-runtime-trailing-slash-stripped"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "/run/user/1000/" }
+    output: "$XDG_RUNTIME_DIR/MyApp"
+
+  - name: "xdg-runtime-relative-is-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "tmp/runtime" }
+    output: "$HOME/.cache/MyApp"
+    description: "Non-absolute XDG_RUNTIME_DIR is treated as unset and falls back to cache_dir"
+
+  - name: "xdg-config-app-with-space-preserved"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/My App"
+    description: "App name preserved verbatim on XDG (no mangling)"
+
+  - name: "xdg-version-with-slash-verbatim"
+    function: config_dir
+    args: { app: "MyApp", version: "1.0/beta" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp/1.0/beta"
+    description: "version is verbatim; embedded / produces a multi-segment path intentionally"
 
   # ---- version appended ------------------------------------------------------
 
@@ -473,6 +517,48 @@ windows:
       USERPROFILE: "C:/Users/alice"
     output: "$USERPROFILE/AppData/Local/MyApp"
 
+  - name: "win-roaming-no-appdata-no-userprofile-falls-to-home"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    roaming: true
+    platform: "windows"
+    env: { HOME: "C:/Users/alice" }
+    output: "$HOME/AppData/Roaming/MyApp"
+    description: "roaming=True with no APPDATA and no USERPROFILE walks the full fallback chain to HOME"
+
+  - name: "win-localappdata-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local/"
+      APPDATA: "C:/Users/alice/AppData/Roaming"
+    output: "$LOCALAPPDATA/MyApp"
+
+  - name: "win-appdata-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    roaming: true
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      APPDATA: "C:/Users/alice/AppData/Roaming/"
+    output: "$APPDATA/MyApp"
+
+  - name: "win-config-app-with-space-preserved"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      APPDATA: "C:/Users/alice/AppData/Roaming"
+    output: "$LOCALAPPDATA/My App"
+    description: "App name preserved verbatim on Windows (no mangling)"
+
   # ---- auto-mode on windows -------------------------------------------------
 
   - name: "win-auto-on-windows"
@@ -556,6 +642,33 @@ single-folder:
     output: "$HOME/.my-app"
     description: "Single-folder replaces whitespace runs with -"
 
+  - name: "single-collapses-multiple-spaces"
+    function: config_dir
+    args: { app: "My  App" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-app"
+    description: "Runs of whitespace collapse to a single dash, not two"
+
+  - name: "single-collapses-tabs-and-mixed-whitespace"
+    function: config_dir
+    args: { app: "My\tApp Name" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-app-name"
+    description: "Tabs are whitespace too; each run becomes one dash"
+
+  - name: "single-trims-leading-trailing-whitespace"
+    function: config_dir
+    args: { app: "  MyApp  " }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+    description: "Leading/trailing whitespace is trimmed before collapse, so no .-myapp- or .--myapp"
+
   - name: "single-with-version"
     function: config_dir
     args: { app: "myapp", version: "1.0" }
@@ -618,9 +731,28 @@ errors:
     env: { LOCALAPPDATA: "C:/Users/alice/AppData/Local" }
     raises: true
 
+  - name: "err-app-with-backslash-on-linux"
+    function: config_dir
+    args: { app: "vendor\\app" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Backslash in app is rejected on every platform, not just Windows"
+
   - name: "err-which-strategy-unknown-platform"
     function: which_strategy
     args: ["plan9"]
+    raises: true
+
+  - name: "err-which-strategy-empty-string"
+    function: which_strategy
+    args: [""]
+    raises: true
+
+  - name: "err-which-strategy-null"
+    function: which_strategy
+    args: [null]
     raises: true
 
 # =============================================================================

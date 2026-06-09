@@ -78,8 +78,10 @@ Follows the [XDG Base Directory Specification](https://specifications.freedeskto
 | data       | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}[/{version}]`   |
 | cache      | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}[/{version}]`        |
 | state      | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}[/{version}]`  |
-| logs       | `<state_dir>/logs`                                         |
+| logs       | `<state_base>/{app}[/{version}]/logs`                      |
 | runtime    | `${XDG_RUNTIME_DIR}/{app}[/{version}]` — see fallback rule |
+
+Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segment is always the **last** path component, after `{app}` and any `{version}` subdir. So `logs_dir(app="MyApp", version="2.3.1")` resolves to `$HOME/.local/state/MyApp/2.3.1/logs`, never `$HOME/.local/state/MyApp/logs/2.3.1`.
 
 **XDG env-var resolution rules:**
 
@@ -87,7 +89,7 @@ Follows the [XDG Base Directory Specification](https://specifications.freedeskto
 2. If the variable is set but **not** an absolute path (does not start with `/`), per the XDG spec it must be treated as unset.
 3. Otherwise use the variable's value verbatim.
 
-**Runtime fallback rule.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". For determinism, `wheredirs` falls back to **`cache_dir(...)`** when `XDG_RUNTIME_DIR` is unset or non-absolute. Implementations should emit a warning at the language's idiomatic warning channel but the return value is fully determined.
+**Runtime fallback rule.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(...)`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
 
 `author` is **ignored** under XDG.
 
@@ -141,14 +143,41 @@ The classic Unix single-dotfolder convention: one folder under `$HOME` holds eve
 | ---------- | ----------------------------- |
 | _all six_  | `$HOME/.{app}[/{version}]`    |
 
-`author` and `roaming` are **ignored**. `app` is lowercased and any whitespace is replaced with `-` before being prefixed with `.` — so `app="My App"` produces `~/.my-app`. (This is the only strategy that mangles `app`; the others use it verbatim.)
+`author` and `roaming` are **ignored**. `app` is mangled in three steps, in this order, before being prefixed with `.`:
+
+1. **Trim** leading and trailing whitespace.
+2. **Collapse** any run of one-or-more whitespace characters (`\s+`, i.e. spaces, tabs, newlines) to a single `-`.
+3. **Lowercase** the result.
+
+Examples:
+
+| Input               | Mangled    | Final path     |
+| ------------------- | ---------- | -------------- |
+| `"MyApp"`           | `myapp`    | `~/.myapp`     |
+| `"My App"`          | `my-app`   | `~/.my-app`    |
+| `"My  App"`         | `my-app`   | `~/.my-app`    |
+| `"  My\tApp  "`     | `my-app`   | `~/.my-app`    |
+| `"Legacy Tool"`     | `legacy-tool` | `~/.legacy-tool` |
+
+This is the only strategy that mangles `app`; the others use it verbatim. Non-whitespace characters (including `.`, `_`, digits, and non-ASCII letters) are left untouched after lowercasing.
 
 ## App, author, version: normalisation rules
 
-- `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is lowercased + `\s+` → `-`. Other characters are preserved (including `.`, `_`).
-- `author` is verbatim where used (Windows).
-- `version` is verbatim. Implementations should not parse or validate it.
+- `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is trimmed + `\s+` → `-` + lowercased (see Single-folder section).
+- `author` is verbatim where used (Windows). It is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. This is intentional — callers may want a sub-vendor under a parent vendor.
+- `version` is verbatim. Implementations should not parse or validate it. An `version` containing `/` (e.g. `"1.0/beta"`) likewise produces a multi-segment path; this is intentional and treated as caller intent, not an error.
 - `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment".
+
+### What each strategy ignores
+
+| Argument  | XDG      | Apple    | Windows         | Single-folder |
+| --------- | -------- | -------- | --------------- | ------------- |
+| `app`     | verbatim | verbatim | verbatim        | mangled       |
+| `author`  | ignored  | ignored  | used            | ignored       |
+| `version` | used     | used     | used            | used          |
+| `roaming` | ignored  | ignored  | switches base   | ignored       |
+
+"Ignored" means silently accepted without changing the output. No warning is emitted.
 
 ## `which_strategy(platform) -> string`
 
@@ -160,7 +189,16 @@ which_strategy("macos")   -> "xdg"
 which_strategy("windows") -> "windows"
 ```
 
-`platform` is a lowercase short name. Implementations should accept the conventional aliases of their language (e.g. `"darwin"` ≡ `"macos"`, `"win32"` ≡ `"windows"`).
+`platform` is a lowercase short name. The full set of recognised inputs is fixed by the spec so that conformance is portable across implementations:
+
+| Input                                                    | Returns      |
+| -------------------------------------------------------- | ------------ |
+| `"linux"`, `"freebsd"`, `"openbsd"`, `"netbsd"`, `"dragonfly"` | `"xdg"`      |
+| `"macos"`, `"darwin"`                                    | `"xdg"`      |
+| `"windows"`, `"win32"`                                   | `"windows"`  |
+| anything else (including `""`, `None`)                   | **raises**   |
+
+Implementations must not silently extend this set with their language's own aliases; if a caller passes `sys.platform` directly and it isn't in the table, the implementation should map it before calling (or accept the error).
 
 ## Error Handling
 
@@ -168,7 +206,7 @@ which_strategy("windows") -> "windows"
 
 1. `strategy` set to anything other than `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`, or `None`.
 2. `app` is `None`, empty string, or contains a path separator (`/` or `\`).
-3. `which_strategy` called with an unrecognised platform string.
+3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, and unknown strings such as `"plan9"`.
 
 The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go, etc.). Tests assert *that* an error is raised, not its concrete type.
 
@@ -176,7 +214,7 @@ The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go,
 
 1. `author` / `version` set on strategies that ignore them: silently ignored.
 2. `roaming=True` on non-Windows strategies: silently ignored.
-3. Trailing slash on env vars (e.g. `XDG_CONFIG_HOME=/tmp/`): stripped before joining.
+3. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `APPDATA`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. Multiple trailing slashes are collapsed.
 
 ## Path output format
 
@@ -207,6 +245,14 @@ For Windows cases, `env` may include `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`. F
 - Creating directories on disk.
 - Finding existing files within those directories.
 - Unicode normalisation of `app` / `author` / `version`.
+
+## Test fixture format — placeholder substitution
+
+The test runner substitutes `$VAR`-style placeholders in each case's `output` using the matching key in the case's `env` block. Substitution rules:
+
+1. Only keys present in the case's `env` are substituted. Variables not in `env` (e.g. `$HOMEBREW_PREFIX`) are left as literal text.
+2. Use **longest-match-first** ordering when one placeholder name is a prefix of another (e.g. substitute `$XDG_CONFIG_HOME` before `$HOME`). A naive `s/$HOME/.../` pass over the string is incorrect.
+3. The substituted string is compared after normalising path separators to `/` on both sides.
 
 ## Changelog
 

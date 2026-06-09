@@ -5,11 +5,11 @@ Show where standard application directories (config, cache, data, state, logs, r
 - the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - Apple's Standard Directories
 - Windows' Known Folder Locations
-- the Unix single-folder convention (`~/.myapp`)
+- the Unix single-folder convention (e.g. `~/.my-app`; the strategy lowercases and dash-joins, so `"My App"` → `.my-app`)
 
 A **ghost library** in the style of [whenwords](https://github.com/dbreunig/whenwords): this repo ships a spec (`SPEC.md`) and language-agnostic test cases (`tests.yaml`), not an implementation. Point your coding agent at them and generate the library in the language you actually want.
 
-Reference libraries for the problem space: [platformdirs](https://github.com/tox-dev/platformdirs) (Python) and [etcetera](https://github.com/lunacookies/etcetera) (Rust). They disagree on macOS — `wheredirs` exposes the strategy choice instead of hiding it.
+Reference libraries for the problem space: [platformdirs](https://github.com/tox-dev/platformdirs) (Python) and [etcetera](https://github.com/lunacookies/etcetera) (Rust). On macOS they diverge: `platformdirs` defaults to the native Apple layout (`~/Library/Application Support/...`), while `etcetera` makes the caller pick a strategy explicitly. `wheredirs` follows etcetera — auto-mode resolves to XDG on macOS, and the Apple layout is opt-in via `strategy="apple"`.
 
 ## Using it
 
