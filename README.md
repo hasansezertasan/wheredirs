@@ -11,6 +11,20 @@ A **ghost library** in the style of [whenwords](https://github.com/dbreunig/when
 
 Reference libraries for the problem space: [platformdirs](https://github.com/tox-dev/platformdirs) (Python) and [etcetera](https://github.com/lunacookies/etcetera) (Rust). They disagree on macOS — `wheredirs` exposes the strategy choice instead of hiding it.
 
+## Using it
+
+1. Drop `SPEC.md` and `tests.yaml` into your project (or just point your coding assistant at this repo).
+2. Follow [`INSTALL.md`](INSTALL.md): give your assistant the prompt, name the language, let it generate the library and a runner for `tests.yaml`.
+3. Add your own cases to the `project:` block at the bottom of `tests.yaml` to lock in the exact paths your apps need.
+
+## Design notes
+
+- **Strategies:** `xdg`, `apple`, `windows`, `single-folder`. Pass one via `strategy=`, or omit for auto-mode.
+- **Auto-mode on macOS picks `xdg`**, not `apple`. The native Apple layout is opt-in via `strategy="apple"`. See SPEC.md for the rationale.
+- **Windows defaults to local (`%LOCALAPPDATA%`)**. Pass `roaming=True` to switch to `%APPDATA%`.
+- **`author` is Windows-only.** Every other strategy ignores it.
+- **Version, when given, is appended as a final subdir** (`.../MyApp/1.0`).
+
 ## Status
 
-Early. `SPEC.md` and `tests.yaml` not yet written.
+v0.1.0 — spec frozen, ready for generation. See [`SPEC.md`](SPEC.md) and [`tests.yaml`](tests.yaml).
