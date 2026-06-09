@@ -37,51 +37,78 @@ All six directory functions share the same parameter shape:
 <kind>_dir(
     app,
     author=None,
-    version=None,
     *,
     strategy=None,
-    roaming=False,
-) -> string
+) -> string | null
 ```
 
 | Parameter  | Type     | Required | Default | Description                                                                 |
 | ---------- | -------- | -------- | ------- | --------------------------------------------------------------------------- |
-| `app`      | string   | Yes      | -       | Application name. Used as the leaf-or-last-but-one path component.          |
-| `author`   | string?  | No       | `None`  | Organisation / publisher. Used **only** on the Windows strategy.            |
-| `version`  | string?  | No       | `None`  | Version subdir appended after `app` (e.g. `MyApp/1.0`).                     |
+| `app`      | string   | Yes      | -       | Application name. Used as the leaf path component.                          |
+| `author`   | string?  | No       | `None`  | Organisation / publisher. Used on Windows (path-join) and Apple (dot-join). |
 | `strategy` | string?  | No       | `None`  | One of `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`. `None` ⇒ auto.   |
-| `roaming`  | boolean  | No       | `False` | Windows only. `True` switches the base from `%LOCALAPPDATA%` to `%APPDATA%`. Ignored by other strategies. |
+
+> **No `roaming` flag.** Microsoft [deprecated roaming AppData as of Windows 11](https://learn.microsoft.com/en-us/windows/apps/design/app-settings/store-and-retrieve-app-data#roaming-data) and recommends Local app data for all new applications. `wheredirs` does not expose a `roaming` parameter — the Windows strategy always uses `%LOCALAPPDATA%`. This also avoids the long-standing footgun where a single `roaming` boolean could be set to `True` and accidentally cause cache or runtime files to replicate across machines. Callers with an existing Windows app that has a long history of using `%APPDATA%` (and who explicitly want to preserve those paths) should read `APPDATA` themselves rather than going through `wheredirs`.
+
+> **No `version` parameter.** None of the platform guides — XDG, Apple FSPG, Windows Known Folder IDs, FHS — specify a per-version subdirectory convention. The `version` parameter is an `appdirs`/`platformdirs` Python-tradition affordance that `wheredirs` deliberately omits. Callers that genuinely want version-isolated paths can compose them in one line: `Path(config_dir("MyApp")) / "1.0"`. Keeping the API surface minimal means there is no asymmetry to document about "where does version go on each platform" (Apple wants it nested? Windows wants it before the `/Logs` suffix? XDG doesn't care?) — those questions disappear because the spec doesn't take a position on them.
+
+## At-a-glance: strategy × function matrix
+
+The table below summarises what each function returns under each strategy. **`null`** means the underlying platform has no concept for that directory kind — implementations return the language's null/none value (Python `None`, Rust `Option::None`, Go zero-value with `ok=false`, TypeScript `null`). Callers must check before use.
+
+| Function       | XDG                                                                  | Apple                                       | Windows                                                | single-folder      |
+| -------------- | -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------ | ------------------ |
+| `config_dir`   | `${XDG_CONFIG_HOME:-$HOME/.config}/{app}`                            | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{author}/{app}`                        | `$HOME/.{app}`     |
+| `data_dir`     | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}`                         | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{author}/{app}`                        | `$HOME/.{app}`     |
+| `cache_dir`    | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}`                              | `$HOME/Library/Caches/{seg}`                | `%LOCALAPPDATA%/{author}/{app}/Cache`                  | `$HOME/.{app}`     |
+| `state_dir`    | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}`                        | **`null`**                                  | **`null`**                                             | `$HOME/.{app}`     |
+| `logs_dir`     | `<state_base>/{app}/logs` ⁽ʷᵉˣᵗ⁾                                      | `$HOME/Library/Logs/{seg}`                  | `%LOCALAPPDATA%/{author}/{app}/Logs` ⁽ʷᵉˣᵗ⁾            | `$HOME/.{app}`     |
+| `runtime_dir`  | `${XDG_RUNTIME_DIR}/{app}` (fallback to `cache_dir`) ⁽ʷᵉˣᵗ⁾           | **`null`**                                  | **`null`**                                             | `$HOME/.{app}`     |
+
+Notation:
+- `{seg}` on Apple = `{app}` when `author` is None, or `{author}.{app}` when given (dot-join into a single segment, per Apple bundle-ID convention).
+- `{author}/{app}` on Windows = `{app}` when `author` is None, or `{author}/{app}` when given (path-join into nested segments, per Microsoft `<Company>\<Product>` convention).
+- ⁽ʷᵉˣᵗ⁾ marks a `wheredirs` extension — the source platform does not define this; `wheredirs` picks a value to keep tests portable.
+- `single-folder` returns the same path for all six kinds — it has no per-kind suffixes or aliasing rules.
+
+**Why does Apple/Windows return `null` for `state_dir` and `runtime_dir`?** Apple's File System Programming Guide defines no "state" or "runtime" directories; macOS apps that need persistent state put it in `Application Support/` and treat ephemeral runtime files via `NSTemporaryDirectory()` or app-private paths. Windows has no Known Folder ID for either either. Rather than have `wheredirs` invent paths the platforms don't acknowledge (and risk callers writing wrongly-permissioned sockets or roaming state across machines), the spec returns `null`. Callers who want a "best-effort" path on every platform can fall back explicitly: `state_dir(...) ?? data_dir(...)`. This is consistent with `etcetera`'s approach and surfaces the platform asymmetry rather than papering over it.
 
 ## Strategies
 
 ### Auto (`strategy=None`)
 
-The strategy is picked from the runtime platform:
+The strategy is picked from the runtime platform — auto-mode resolves to whatever is native:
 
 | Platform     | Auto strategy |
 | ------------ | ------------- |
 | Linux / *BSD | `xdg`         |
-| macOS        | `xdg`         |
+| macOS        | `apple`       |
 | Windows      | `windows`     |
 
-Auto mode never picks `apple` or `single-folder` — those are opt-in only. The `which_strategy(platform)` helper returns the strategy string auto mode would select for a given platform.
+Auto mode never picks `single-folder` — that's a *layout* preference, not a platform default, and is opt-in only. The `which_strategy(platform)` helper returns the strategy string auto mode would select for a given platform.
 
-> **macOS note.** Auto-mode returns `xdg` on macOS, not `apple`. The native Apple layout is available by passing `strategy="apple"` explicitly. This matches `etcetera`'s default and diverges from `platformdirs`; the rationale is cross-platform consistency for headless and developer tooling, which is the dominant use of `wheredirs`.
+**Any explicit strategy is legal on any platform.** `strategy="xdg"` on macOS returns XDG-layout paths under `$HOME/.config`, `$HOME/.cache`, etc.; `strategy="windows"` on Linux returns Windows-layout paths joined from `$LOCALAPPDATA` (or its `$USERPROFILE`/`$HOME` fallback). The strategy fully determines the layout — `platform` is only consulted by auto-mode. This is deliberate so cross-compilation, test fixtures, and "I want one layout everywhere" use cases all work uniformly.
+
+> **macOS note.** Auto-mode on macOS returns `apple`, matching the native platform contract (`~/Library/Application Support/...` is what Time Machine, Migration Assistant, MDM scanners, and Finder expect). CLI tools or cross-platform headless services that prefer a single layout everywhere should pass `strategy="xdg"` explicitly — that gets `~/.config/MyApp` on macOS too, matching the Linux path. This makes wheredirs align with `platformdirs`' default and diverges from `etcetera`'s explicit-only design; the rationale is that `auto` should mean "auto-detect the native convention," not "auto-detect and apply a cross-platform consistency opinion." The escape hatch is symmetric (one parameter either way), but only the native-by-default direction lets the library do its job for GUI apps without requiring callers to write platform-detection logic.
 
 ### XDG (`strategy="xdg"`)
 
-Follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/). Used on Linux/BSD and (per above) by default on macOS.
+Follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/). Used on Linux/BSD by default; available on any platform via explicit `strategy="xdg"`.
+
+The directory layout, env-var names, default paths, and the "non-absolute is unset" rule below all come directly from the XDG spec. Two of the rules in this section go beyond what XDG specifies — they're flagged as **`wheredirs` extensions** so implementers know which lines are derived from XDG and which are wheredirs' own opinion.
 
 | Kind       | Path                                                       |
 | ---------- | ---------------------------------------------------------- |
-| config     | `${XDG_CONFIG_HOME:-$HOME/.config}/{app}[/{version}]`      |
-| data       | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}[/{version}]`   |
-| cache      | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}[/{version}]`        |
-| state      | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}[/{version}]`  |
-| logs       | `<state_base>/{app}[/{version}]/logs`                      |
-| runtime    | `${XDG_RUNTIME_DIR}/{app}[/{version}]` — see fallback rule |
+| config     | `${XDG_CONFIG_HOME:-$HOME/.config}/{app}`      |
+| data       | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}`   |
+| cache      | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}`        |
+| state      | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}`  |
+| logs       | `<state_base>/{app}/logs`                      |
+| runtime    | `${XDG_RUNTIME_DIR}/{app}` — see fallback rule |
 
-Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segment is always the **last** path component, after `{app}` and any `{version}` subdir. So `logs_dir(app="MyApp", version="2.3.1")` resolves to `$HOME/.local/state/MyApp/2.3.1/logs`, never `$HOME/.local/state/MyApp/logs/2.3.1`.
+Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segment is always the **last** path component, after `{app}`. So `logs_dir(app="MyApp")` resolves to `$HOME/.local/state/MyApp/logs`.
+
+> **wheredirs extension — XDG logs.** The XDG Base Directory Specification does not define a directory for log files. `wheredirs` places logs under the state directory (matching the systemd/journalctl convention of treating logs as machine-state) with a `/logs` suffix to keep them visually distinct from arbitrary state files. Implementations following XDG strictly would have to invent this themselves; `wheredirs` picks one answer so the path is portable.
 
 **XDG env-var resolution rules:**
 
@@ -89,61 +116,98 @@ Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segm
 2. If the variable is set but **not** an absolute path (does not start with `/`), per the XDG spec it must be treated as unset.
 3. Otherwise use the variable's value verbatim.
 
-**Runtime fallback rule.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(...)`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
+**wheredirs extension — runtime fallback.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(...)`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
+
+> **⚠ Security note — runtime fallback.** The fallback path under `cache_dir` does **NOT** carry the guarantees a real `XDG_RUNTIME_DIR` does: not guaranteed `0700`, not guaranteed user-owned, not cleared on logout, and persists across reboots on most systems. Callers writing unix domain sockets, lock files, pid files, or any primitive that relies on those guarantees MUST verify or enforce the permissions themselves (e.g. `mkdir(..., 0o700)` + `chown` + stale-file removal) before use, OR detect that the fallback is in effect and refuse to operate. Treat `runtime_dir`'s output as "ephemeral *location*", not as "ephemeral *with isolation*", whenever `XDG_RUNTIME_DIR` was unset.
 
 `author` is **ignored** under XDG.
 
 ### Apple (`strategy="apple"`)
 
-Native macOS layout under `~/Library`.
+Follows Apple's [File System Programming Guide](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html) — specifically the standard directories under `~/Library`. Used on macOS/darwin by default; available on any platform via explicit `strategy="apple"`. The full pattern is:
 
-| Kind       | Path                                                                |
-| ---------- | ------------------------------------------------------------------- |
-| config     | `$HOME/Library/Application Support/{app}[/{version}]`               |
-| data       | `$HOME/Library/Application Support/{app}[/{version}]`               |
-| cache      | `$HOME/Library/Caches/{app}[/{version}]`                            |
-| state      | `$HOME/Library/Application Support/{app}[/{version}]`               |
-| logs       | `$HOME/Library/Logs/{app}[/{version}]`                              |
-| runtime    | `$HOME/Library/Caches/{app}[/{version}]` (aliased to cache)         |
+```
+$HOME/Library/{base}/{author-app}
+```
 
-`author` is **ignored** under Apple. `data` and `state` deliberately collapse to the same path as `config` — Apple has no XDG-style separation.
+Where `{base}` varies by kind, and `{author-app}` is a **single path segment** formed by joining `author` and `app` with a dot. When `author` is `None`, the segment is just `app`. Concretely:
+
+| Kind       | Base                       | With author                                                  | Without author                                |
+| ---------- | -------------------------- | ------------------------------------------------------------ | --------------------------------------------- |
+| config     | `Application Support`      | `$HOME/Library/Application Support/{author}.{app}`           | `$HOME/Library/Application Support/{app}`     |
+| data       | `Application Support`      | `$HOME/Library/Application Support/{author}.{app}`           | `$HOME/Library/Application Support/{app}`     |
+| cache      | `Caches`                   | `$HOME/Library/Caches/{author}.{app}`                        | `$HOME/Library/Caches/{app}`                  |
+| **state**  | **(no Apple concept)**     | **returns `null`**                                           | **returns `null`**                            |
+| logs       | `Logs`                     | `$HOME/Library/Logs/{author}.{app}`                          | `$HOME/Library/Logs/{app}`                    |
+| **runtime**| **(no Apple concept)**     | **returns `null`**                                           | **returns `null`**                            |
+
+`data` deliberately collapses to the same path as `config` — Apple has no XDG-style separation between them.
+
+> **Why dot-join (one segment), not path-join (nested)?** Apple's File System Programming Guide is explicit (Table A-1): "all of these items should be put in a subdirectory whose name matches the **bundle identifier** of the app. For example, if your app is named MyApp and has the bundle identifier `com.example.MyApp`, you would put your app's user-specific data files and resources in the `~/Library/Application Support/com.example.MyApp/` directory." The recommended layout is **one directory whose name is the bundle ID**, not nested vendor/app directories. `wheredirs` honours this by joining `author` and `app` with `.` into a single segment, matching the bundle-ID convention. This deliberately differs from the Windows strategy, where `author` and `app` are separate path components — each strategy follows its own platform's convention rather than imposing a uniform join rule.
+
+> **Recommendation — reverse-DNS naming.** Apple recommends reverse-DNS bundle identifiers (`com.acme.myapp`) to avoid collisions with apps that have similar display names. `wheredirs` does not normalize or validate `author` and `app` — they are joined verbatim with a dot. Callers that want strict bundle-ID conformance should pre-compose accordingly:
+>
+> - `author="com.acme", app="MyApp"` → `$HOME/Library/Application Support/com.acme.MyApp/` ← reverse-DNS, idiomatic Apple
+> - `author="Acme", app="MyApp"` → `$HOME/Library/Application Support/Acme.MyApp/` ← still a single segment, functional but not strictly reverse-DNS
+> - `app="MyApp"` (no author) → `$HOME/Library/Application Support/MyApp/` ← matches what platformdirs produces; less collision-resistant but acceptable for tools with unique names
+>
+> Unlike the Rust `etcetera` library, `wheredirs` does not split `top_level_domain` from `author` or apply lowercase/space-to-dash normalization automatically. The caller composes the dotted prefix themselves. This keeps the API surface smaller; the trade-off is that wheredirs trusts the caller not to pass syntactically-malformed identifiers.
+
+> **No Apple concept — `state_dir` and `runtime_dir` return `null`.** Apple's File System Programming Guide does not define separate directories for app-state or runtime files. macOS apps that need persistent state put it in `Application Support/` and treat ephemeral runtime files via `NSTemporaryDirectory()` or app-private paths under `Caches/`. Rather than alias `state_dir` to `Application Support/` and `runtime_dir` to `Caches/` (creating two API surfaces for the same on-disk path, and risking callers writing socket files into a non-`0700` cache directory), `wheredirs` returns `null` for these on Apple. Callers who want a best-effort path should fall back explicitly:
+>
+> - "Use data dir if no state dir": `state_dir(...) ?? data_dir(...)`
+> - "Use cache dir if no runtime dir, with the security caveat in mind": `runtime_dir(...) ?? cache_dir(...)`
+>
+> This makes the platform asymmetry visible to the caller instead of papering over it.
 
 ### Windows (`strategy="windows"`)
 
-Uses `%APPDATA%` (roaming) or `%LOCALAPPDATA%` (local). The default is **local**; pass `roaming=True` to opt into the roaming base.
+Follows Microsoft's [Known Folder IDs](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid) — specifically `FOLDERID_LocalAppData` (`%LOCALAPPDATA%`). Used on Windows/win32 by default; available on any platform via explicit `strategy="windows"`.
 
-| Kind       | Base                                | Suffix              |
-| ---------- | ----------------------------------- | ------------------- |
-| config     | `%LOCALAPPDATA%` (or `%APPDATA%`)   | _(none)_            |
-| data       | `%LOCALAPPDATA%` (or `%APPDATA%`)   | _(none)_            |
-| cache      | `%LOCALAPPDATA%` (or `%APPDATA%`)   | `/Cache`            |
-| state      | `%LOCALAPPDATA%` (or `%APPDATA%`)   | _(none)_            |
-| logs       | `%LOCALAPPDATA%` (or `%APPDATA%`)   | `/Logs`             |
-| runtime    | `%LOCALAPPDATA%` (or `%APPDATA%`)   | _(none)_            |
+The `<Company>\<Product>` author/app layout matches Microsoft's MSDN guidance for organizing files under AppData.
+
+> **Why only `%LOCALAPPDATA%`?** Microsoft [deprecated roaming AppData as of Windows 11](https://learn.microsoft.com/en-us/windows/apps/design/app-settings/store-and-retrieve-app-data#roaming-data) and recommends Local for all new applications. Even on Windows 10, Microsoft already recommended Local over Roaming because "RoamingSettings data may not persist through Microsoft Store app updates." `wheredirs` therefore does not expose `%APPDATA%` at all — the spec is calibrated to Microsoft's current guidance, not its deprecated guidance. Callers porting legacy apps that genuinely need the historic roaming paths should read `%APPDATA%` themselves; the gain in API simplicity here outweighs the marginal loss in flexibility.
+
+| Kind       | Base               | Suffix              |
+| ---------- | ------------------ | ------------------- |
+| config     | `%LOCALAPPDATA%`   | _(none)_            |
+| data       | `%LOCALAPPDATA%`   | _(none)_            |
+| cache      | `%LOCALAPPDATA%`   | `/Cache`            |
+| **state**  | **(no Known Folder)** | **returns `null`**  |
+| logs       | `%LOCALAPPDATA%`   | `/Logs`             |
+| **runtime**| **(no Known Folder)** | **returns `null`**  |
 
 The full pattern is:
 
 ```
-{base}/{author}/{app}[/{version}]{suffix}
+%LOCALAPPDATA%/{author}/{app}{suffix}
 ```
 
 If `author` is `None`, the `{author}` segment (and its separator) is omitted:
 
 ```
-{base}/{app}[/{version}]{suffix}
+%LOCALAPPDATA%/{app}{suffix}
 ```
 
-**Env-var resolution.** If `%LOCALAPPDATA%` is unset or empty, fall back to `${USERPROFILE}/AppData/Local`. If `%APPDATA%` is unset or empty, fall back to `${USERPROFILE}/AppData/Roaming`. If `%USERPROFILE%` is also unset, fall back to `$HOME`.
+**Env-var resolution.** If `%LOCALAPPDATA%` is unset or empty, fall back to `${USERPROFILE}/AppData/Local`. If `%USERPROFILE%` is also unset or empty, fall back to `$HOME/AppData/Local`.
+
+Unlike the XDG rules, Windows env vars are **not** checked for absoluteness. Any non-empty value is used verbatim. Windows paths legitimately take many shapes — drive-letter (`C:\...`), UNC (`\\server\share\...`), `\\?\` namespaced, mapped drives — and rejecting "non-absolute" forms would reject valid input. The only fallback trigger is unset-or-empty.
+
+> **wheredirs extensions — `/Cache` and `/Logs` suffixes.** The Known Folder IDs catalog has no dedicated entries for per-app cache or log subdirectories under AppData (only `FOLDERID_LocalAppDataLow` for low-integrity processes, which `wheredirs` does not expose). The `/Cache` and `/Logs` suffixes are conventional — used by Microsoft and many Windows apps but not formally standardised. `wheredirs` picks them to keep cache and logs visually distinct from arbitrary state within the app folder.
+
+> **No Windows concept — `state_dir` and `runtime_dir` return `null`.** Windows has no Known Folder for app state (apps that need it conventionally use subdirectories of `%LOCALAPPDATA%` chosen by the app itself) and no Known Folder for runtime files (apps use `%TEMP%`/`GetTempPath()` or app-private paths). Rather than alias `state_dir` to `data_dir` and `runtime_dir` to `%TEMP%/<app>` (which would surface as a path even though no Windows convention exists), `wheredirs` returns `null` for these on Windows. Callers wanting a best-effort path should fall back: `state_dir(...) ?? data_dir(...)` and similarly for runtime. This matches the Apple behavior and is consistent with the `etcetera` reference library.
 
 ### Single-folder (`strategy="single-folder"`)
 
 The classic Unix single-dotfolder convention: one folder under `$HOME` holds everything.
 
+> **No formal specification exists for this convention.** The `~/.appname/` dotfile pattern is unwritten Unix tradition predating XDG by decades — it is *not* covered by the [Filesystem Hierarchy Standard](https://www.pathname.com/fhs/), which formalises *system* directories (`/usr`, `/var`, `/etc`) but is silent on user-home layout. The closest things to a written reference are community discussions ([example: "File and directory naming conventions" on Unix Stack Exchange](https://unix.stackexchange.com/questions/15230/file-and-directory-naming-conventions)) and the XDG spec's own rationale section, which describes the dotfile-proliferation problem XDG was created to fix. `wheredirs` picks the pattern (lowercase, dash-collapse, dotted) used by long-running tools like `git`, `ssh`, and `vim` for their own private dot-directories.
+
 | Kind       | Path                          |
 | ---------- | ----------------------------- |
-| _all six_  | `$HOME/.{app}[/{version}]`    |
+| _all six_  | `$HOME/.{app}`    |
 
-`author` and `roaming` are **ignored**. `app` is mangled in three steps, in this order, before being prefixed with `.`:
+`author` is **ignored**. `app` is mangled in three steps, in this order, before being prefixed with `.`:
 
 1. **Trim** leading and trailing whitespace.
 2. **Collapse** any run of one-or-more whitespace characters (`\s+`, i.e. spaces, tabs, newlines) to a single `-`.
@@ -159,25 +223,35 @@ Examples:
 | `"  My\tApp  "`     | `my-app`   | `~/.my-app`    |
 | `"Legacy Tool"`     | `legacy-tool` | `~/.legacy-tool` |
 
-This is the only strategy that mangles `app`; the others use it verbatim. Non-whitespace characters (including `.`, `_`, digits, and non-ASCII letters) are left untouched after lowercasing.
+This is the only strategy that mangles `app`; the others use it verbatim. Non-whitespace characters (including `.`, `_`, digits, and non-ASCII letters) are left untouched after lowercasing. Lowercasing is **ASCII-only**: characters outside `A-Z` are not folded (no Unicode case-folding, no locale-sensitive folding such as Turkish dotted/dotless I). This is intentional and consistent with the "Unicode normalisation out of scope" rule (see "Out of scope for v0.1").
 
-## App, author, version: normalisation rules
+**Why a peer strategy, not a layout axis?** `single-folder` is enumerated alongside the platform strategies for v0.1 because it's a complete, self-contained answer to "where does my app's stuff go" — it doesn't need a platform input. A future version may split layout (split-by-kind vs single-folder) from platform (xdg/apple/windows) into orthogonal axes; that refactor is deferred until a real use case appears for, say, "Apple layout collapsed under one folder".
+
+## App and author: normalisation rules
 
 - `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is trimmed + `\s+` → `-` + lowercased (see Single-folder section).
-- `author` is verbatim where used (Windows). It is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. This is intentional — callers may want a sub-vendor under a parent vendor.
-- `version` is verbatim. Implementations should not parse or validate it. An `version` containing `/` (e.g. `"1.0/beta"`) likewise produces a multi-segment path; this is intentional and treated as caller intent, not an error.
-- `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment".
+- `author` is verbatim where used. On Windows it is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. On Apple it is dot-joined with `app` verbatim — embedded dots are not deduplicated. This is intentional; callers may want a sub-vendor under a parent vendor or a fully-qualified reverse-DNS string.
+- `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment". Omitting the parameter entirely and passing `None` explicitly are equivalent.
 
 ### What each strategy ignores
 
 | Argument  | XDG      | Apple    | Windows         | Single-folder |
 | --------- | -------- | -------- | --------------- | ------------- |
 | `app`     | verbatim | verbatim | verbatim        | mangled       |
-| `author`  | ignored  | ignored  | used            | ignored       |
-| `version` | used     | used     | used            | used          |
-| `roaming` | ignored  | ignored  | switches base   | ignored       |
+| `author`  | ignored  | dot-join | path-join       | ignored       |
 
 "Ignored" means silently accepted without changing the output. No warning is emitted.
+
+> **`author` asymmetry.** `author` is consumed by Windows and Apple but with **different join rules**, and ignored on XDG and single-folder:
+>
+> | Strategy        | What `author="Acme", app="MyApp"` produces                  | Join rule                                |
+> | --------------- | ----------------------------------------------------------- | ---------------------------------------- |
+> | XDG             | `…/MyApp`                                                   | `author` ignored (XDG has no vendor concept) |
+> | Apple           | `…/Acme.MyApp`                                              | **dot-join into one segment** (matches Apple bundle-ID convention) |
+> | Windows         | `…/Acme/MyApp`                                              | **path-join into nested segments** (matches Microsoft `<Company>\<Product>` convention) |
+> | single-folder   | `…/.myapp`                                                  | `author` ignored                         |
+>
+> Each strategy uses the convention of the platform it represents — not a uniform "vendor segment" rule. A caller who develops on Linux with `author="Acme"` will see no change to the path; on macOS they will see `Acme.MyApp/`; on Windows they will see `Acme\MyApp\`. This is intentional. Downstream impls SHOULD document the per-platform behavior in their README. Callers who want one identical path across all platforms should either embed everything into `app` (e.g. `app="Acme-MyApp"`) or use `single-folder`.
 
 ## `which_strategy(platform) -> string`
 
@@ -185,7 +259,7 @@ Helper for callers that want to inspect what auto-mode would do.
 
 ```
 which_strategy("linux")   -> "xdg"
-which_strategy("macos")   -> "xdg"
+which_strategy("macos")   -> "apple"
 which_strategy("windows") -> "windows"
 ```
 
@@ -194,7 +268,7 @@ which_strategy("windows") -> "windows"
 | Input                                                    | Returns      |
 | -------------------------------------------------------- | ------------ |
 | `"linux"`, `"freebsd"`, `"openbsd"`, `"netbsd"`, `"dragonfly"` | `"xdg"`      |
-| `"macos"`, `"darwin"`                                    | `"xdg"`      |
+| `"macos"`, `"darwin"`                                    | `"apple"`    |
 | `"windows"`, `"win32"`                                   | `"windows"`  |
 | anything else (including `""`, `None`)                   | **raises**   |
 
@@ -204,17 +278,16 @@ Implementations must not silently extend this set with their language's own alia
 
 ### Required errors
 
-1. `strategy` set to anything other than `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`, or `None`.
-2. `app` is `None`, empty string, or contains a path separator (`/` or `\`).
+1. `strategy` set to anything other than `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`, or `None`. This explicitly includes the empty string `""`.
+2. `app` is `None`, empty string, or contains a path separator (`/` or `\`). Validation happens *before* any env resolution — `app` errors are raised regardless of whether the platform's required env vars are set.
 3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, and unknown strings such as `"plan9"`.
 
 The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go, etc.). Tests assert *that* an error is raised, not its concrete type.
 
 ### Graceful handling
 
-1. `author` / `version` set on strategies that ignore them: silently ignored.
-2. `roaming=True` on non-Windows strategies: silently ignored.
-3. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `APPDATA`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. Multiple trailing slashes are collapsed.
+1. `author` set on strategies that ignore it (XDG, single-folder): silently ignored.
+2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. Multiple trailing slashes are collapsed.
 
 ## Path output format
 
@@ -222,7 +295,11 @@ All paths returned by `wheredirs` use **forward slashes** in the spec and tests,
 
 ## Test fixture format
 
-Each case in `tests.yaml` declares the full input environment. The expected `output` is a path with `$HOME`-style placeholders matching the keys in `env`. The test runner substitutes those placeholders from `env` before comparing to the implementation's output.
+Each case in `tests.yaml` declares the full input environment. The expected `output` is one of:
+
+- A path string with `$HOME`-style placeholders matching keys in `env` — the test runner substitutes those placeholders from `env` before comparing to the implementation's output.
+- `null` — the implementation must return the language's null/none value (Python `None`, Rust `Option::None`, Go zero string with `ok=false`, TypeScript `null`). Used for functions that have no concept on a given strategy (e.g. `state_dir`/`runtime_dir` on Apple and Windows).
+- Omitted, with `raises: true` instead — the implementation must raise/return an error.
 
 ```yaml
 - name: "xdg-config-linux-default"
@@ -236,15 +313,37 @@ Each case in `tests.yaml` declares the full input environment. The expected `out
   output: "$HOME/.config/MyApp"
 ```
 
-For Windows cases, `env` may include `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`. For XDG cases, any of `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`. Variables not declared in `env` are treated as unset.
+For Windows cases, `env` may include `LOCALAPPDATA`, `USERPROFILE`, `HOME`. For XDG cases, any of `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`. Variables not declared in `env` are treated as unset.
 
 ## Out of scope for v0.1
 
-- System-wide / site-wide directories (`/etc`, `XDG_CONFIG_DIRS`, `%PROGRAMDATA%`).
-- Per-user vs per-machine selection on Windows beyond the roaming/local flag.
+- System-wide / site-wide directories (`/etc`, `XDG_CONFIG_DIRS`, `%PROGRAMDATA%`, FHS paths like `/var/lib/<app>`).
+- Per-user vs per-machine selection on Windows beyond the Local AppData base (i.e. no `%PROGRAMDATA%`, no roaming).
+- Windows `FOLDERID_LocalAppDataLow` (low-integrity processes).
 - Creating directories on disk.
 - Finding existing files within those directories.
-- Unicode normalisation of `app` / `author` / `version`.
+- Unicode normalisation of `app` / `author`.
+
+### Deferred candidate strategies
+
+These are real conventions covered by formal specifications that `wheredirs` deliberately omits from v0.1 — listed here so the door is documented as open:
+
+- **`system` / FHS** — system-daemon paths per the [Filesystem Hierarchy Standard](https://www.pathname.com/fhs/): `/etc/<app>`, `/var/lib/<app>`, `/var/cache/<app>`, `/var/log/<app>`, `/run/<app>`. This is the most obvious next strategy: it's formally specified, widely deployed, and complements the user-scoped four. A future version may add it as `strategy="system"` returning these paths regardless of platform (FHS applies on Linux and most Unixes; Windows daemons use a different model entirely and would not be covered).
+- **`portable`** — everything under a caller-supplied base directory (typical for AppImage / portable apps). Achievable today by post-processing wheredirs' output; not worth a peer strategy unless a real use case appears.
+
+## References
+
+The behavioral rules above are derived from these specifications and conventions. Where `wheredirs` extends or diverges from a source, the extension is called out inline in the relevant section.
+
+- **XDG Base Directory Specification** — <https://specifications.freedesktop.org/basedir-spec/latest/>
+  Source of: all `XDG_*` env var names, default paths, the "non-absolute is unset" rule, and the `XDG_RUNTIME_DIR` warning-on-fallback guidance.
+- **Apple's File System Programming Guide** — <https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/FileSystemOverview/FileSystemOverview.html>
+  Source of: the `~/Library/Application Support/`, `Caches/`, `Logs/` directory layout and the reverse-DNS naming recommendation.
+- **Windows Known Folder IDs** — <https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid>
+  Source of: `FOLDERID_LocalAppData` and the `%LOCALAPPDATA%` env-var mapping. `FOLDERID_RoamingAppData` / `%APPDATA%` is documented here but not used by `wheredirs` (see "No roaming flag" note above).
+- **Filesystem Hierarchy Standard (FHS)** — <https://www.pathname.com/fhs/>
+  Referenced for the deferred `system` strategy. **Not** a reference for the `single-folder` strategy — FHS does not cover user-home layout.
+- **Unix dotfile convention (informal)** — example: ["File and directory naming conventions" on Unix Stack Exchange](https://unix.stackexchange.com/questions/15230/file-and-directory-naming-conventions). No authoritative spec exists for the `~/.app/` pattern; `wheredirs` codifies the common form (lowercase, dash-collapse, leading dot).
 
 ## Test fixture format — placeholder substitution
 

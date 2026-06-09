@@ -2,46 +2,64 @@
 # Language-agnostic test cases. See SPEC.md for the complete behavioral specification.
 #
 # Each case declares all inputs that affect the output: args + strategy + platform + env.
-# Expected `output` uses placeholders ($HOME, $XDG_CONFIG_HOME, $APPDATA, ...) that match
+# Expected `output` uses placeholders ($HOME, $XDG_CONFIG_HOME, $LOCALAPPDATA, ...) that match
 # keys in the `env` block. The test runner substitutes those placeholders before comparing
 # to the implementation's return value.
 #
-# Variables not declared in `env` are treated as unset.
+# Variables not declared in `env` are treated as unset. Some cases below also
+# pin variables to the empty string explicitly (e.g. `USERPROFILE: ""` on a
+# Windows happy-path case where the fallback chain should never fire) — those
+# explicit pins are redundant with the rule above but make intent unambiguous
+# and immune to a sloppy runner that leaks ambient host env vars.
 
 version: "0.1.0"
 
 # =============================================================================
 # which_strategy
 # =============================================================================
+#
+# which_strategy cases use `args` (positional), no `env`, no `platform` —
+# the function takes the platform name as its only argument and consults no
+# ambient state. Runners should treat absent `env` / `platform` as "not
+# applicable" rather than reading the host's real values.
 
 which_strategy:
   - name: "linux-picks-xdg"
-    input: ["linux"]
+    function: which_strategy
+    args: ["linux"]
     output: "xdg"
-  - name: "macos-picks-xdg"
-    input: ["macos"]
-    output: "xdg"
-    description: "Auto-mode on macOS picks xdg, not apple (see SPEC rationale)"
+  - name: "macos-picks-apple"
+    function: which_strategy
+    args: ["macos"]
+    output: "apple"
+    description: "Auto-mode on macOS picks the native Apple layout"
   - name: "darwin-alias-of-macos"
-    input: ["darwin"]
-    output: "xdg"
+    function: which_strategy
+    args: ["darwin"]
+    output: "apple"
   - name: "windows-picks-windows"
-    input: ["windows"]
+    function: which_strategy
+    args: ["windows"]
     output: "windows"
   - name: "win32-alias-of-windows"
-    input: ["win32"]
+    function: which_strategy
+    args: ["win32"]
     output: "windows"
   - name: "freebsd-picks-xdg"
-    input: ["freebsd"]
+    function: which_strategy
+    args: ["freebsd"]
     output: "xdg"
   - name: "openbsd-picks-xdg"
-    input: ["openbsd"]
+    function: which_strategy
+    args: ["openbsd"]
     output: "xdg"
   - name: "netbsd-picks-xdg"
-    input: ["netbsd"]
+    function: which_strategy
+    args: ["netbsd"]
     output: "xdg"
   - name: "dragonfly-picks-xdg"
-    input: ["dragonfly"]
+    function: which_strategy
+    args: ["dragonfly"]
     output: "xdg"
 
 # =============================================================================
@@ -204,49 +222,12 @@ xdg:
     output: "$HOME/.config/My App"
     description: "App name preserved verbatim on XDG (no mangling)"
 
-  - name: "xdg-version-with-slash-verbatim"
-    function: config_dir
-    args: { app: "MyApp", version: "1.0/beta" }
-    strategy: "xdg"
-    platform: "linux"
-    env: { HOME: "/home/alice" }
-    output: "$HOME/.config/MyApp/1.0/beta"
-    description: "version is verbatim; embedded / produces a multi-segment path intentionally"
-
-  # ---- version appended ------------------------------------------------------
-
-  - name: "xdg-config-with-version"
-    function: config_dir
-    args: { app: "MyApp", version: "1.0" }
-    strategy: "xdg"
-    platform: "linux"
-    env: { HOME: "/home/alice" }
-    output: "$HOME/.config/MyApp/1.0"
-
-  - name: "xdg-logs-with-version"
-    function: logs_dir
-    args: { app: "MyApp", version: "2.3.1" }
-    strategy: "xdg"
-    platform: "linux"
-    env: { HOME: "/home/alice" }
-    output: "$HOME/.local/state/MyApp/2.3.1/logs"
-    description: "Version goes between app and the 'logs' suffix"
-
   # ---- author is ignored on XDG ---------------------------------------------
 
   - name: "xdg-config-author-ignored"
     function: config_dir
     args: { app: "MyApp", author: "Acme" }
     strategy: "xdg"
-    platform: "linux"
-    env: { HOME: "/home/alice" }
-    output: "$HOME/.config/MyApp"
-
-  - name: "xdg-roaming-flag-ignored"
-    function: config_dir
-    args: { app: "MyApp" }
-    strategy: "xdg"
-    roaming: true
     platform: "linux"
     env: { HOME: "/home/alice" }
     output: "$HOME/.config/MyApp"
@@ -261,14 +242,47 @@ xdg:
     env: { HOME: "/home/alice" }
     output: "$HOME/.config/MyApp"
 
-  - name: "xdg-auto-on-macos"
+  - name: "xdg-explicit-on-macos"
     function: config_dir
     args: { app: "MyApp" }
-    strategy: null
+    strategy: "xdg"
     platform: "macos"
     env: { HOME: "/Users/alice" }
     output: "$HOME/.config/MyApp"
-    description: "macOS auto-mode picks xdg, not apple"
+    description: "Explicit strategy='xdg' on macOS is legal and gives the same path as on Linux — useful for cross-platform CLI tooling that wants one layout everywhere"
+
+  # ---- BSD auto-mode dir resolution (matches which_strategy) ----------------
+
+  - name: "xdg-auto-on-freebsd"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "freebsd"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp"
+    description: "Auto-mode on BSDs picks xdg too; guards against hard-coding only linux/macos"
+
+  # ---- runtime fallback edge cases ------------------------------------------
+
+  - name: "xdg-runtime-empty-is-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "" }
+    output: "$HOME/.cache/MyApp"
+    description: "Empty XDG_RUNTIME_DIR is treated as unset and falls back to cache_dir"
+
+  # ---- explicit strategy is legal on any platform ---------------------------
+
+  - name: "xdg-explicit-on-windows"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "windows"
+    env: { HOME: "C:/Users/alice" }
+    output: "$HOME/.config/MyApp"
+    description: "strategy='xdg' on a windows platform is legal; platform only matters for auto-mode"
 
 # =============================================================================
 # Apple strategy (opt-in)
@@ -299,13 +313,23 @@ apple:
     env: { HOME: "/Users/alice" }
     output: "$HOME/Library/Caches/MyApp"
 
-  - name: "apple-state-same-as-config"
+  - name: "apple-state-is-null"
     function: state_dir
     args: { app: "MyApp" }
     strategy: "apple"
     platform: "macos"
     env: { HOME: "/Users/alice" }
-    output: "$HOME/Library/Application Support/MyApp"
+    output: null
+    description: "Apple has no state_dir concept; wheredirs returns null rather than aliasing to Application Support"
+
+  - name: "apple-state-with-author-still-null"
+    function: state_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: null
+    description: "Author has no effect on a null return"
 
   - name: "apple-logs"
     function: logs_dir
@@ -315,37 +339,68 @@ apple:
     env: { HOME: "/Users/alice" }
     output: "$HOME/Library/Logs/MyApp"
 
-  - name: "apple-runtime-aliases-cache"
+  - name: "apple-runtime-is-null"
     function: runtime_dir
     args: { app: "MyApp" }
     strategy: "apple"
     platform: "macos"
     env: { HOME: "/Users/alice" }
-    output: "$HOME/Library/Caches/MyApp"
+    output: null
+    description: "Apple has no runtime_dir concept; wheredirs returns null rather than aliasing to Caches (which lacks the 0700/session-lifetime guarantees a real runtime dir needs)"
 
-  - name: "apple-config-with-version"
-    function: config_dir
-    args: { app: "MyApp", version: "1.0" }
-    strategy: "apple"
-    platform: "macos"
-    env: { HOME: "/Users/alice" }
-    output: "$HOME/Library/Application Support/MyApp/1.0"
-
-  - name: "apple-logs-with-version"
-    function: logs_dir
-    args: { app: "MyApp", version: "1.0" }
-    strategy: "apple"
-    platform: "macos"
-    env: { HOME: "/Users/alice" }
-    output: "$HOME/Library/Logs/MyApp/1.0"
-
-  - name: "apple-author-ignored"
+  - name: "apple-config-with-author"
     function: config_dir
     args: { app: "MyApp", author: "Acme" }
     strategy: "apple"
     platform: "macos"
     env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/Acme.MyApp"
+    description: "Author and app dot-joined into a SINGLE path segment (matches Apple bundle-ID convention, not Windows-style nesting)"
+
+  - name: "apple-cache-with-author"
+    function: cache_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Caches/Acme.MyApp"
+    description: "Dot-join applies to every kind, not just config"
+
+  - name: "apple-logs-with-author"
+    function: logs_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Logs/Acme.MyApp"
+    description: "Author dot-joined with app into one segment under ~/Library/Logs"
+
+  - name: "apple-config-reverse-dns-author"
+    function: config_dir
+    args: { app: "MyApp", author: "com.acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/com.acme.MyApp"
+    description: "Reverse-DNS author yields a single bundle-ID-shaped segment, exactly as Apple recommends"
+
+  - name: "apple-config-author-with-existing-dot"
+    function: config_dir
+    args: { app: "myapp", author: "io.github.acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/io.github.acme.myapp"
+    description: "An author that already contains dots is dot-joined verbatim; wheredirs does not deduplicate or normalize"
+
+  - name: "apple-config-author-omitted-falls-back"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
     output: "$HOME/Library/Application Support/MyApp"
+    description: "Without author, the segment is just `app` (no leading dot, no synthesized prefix)"
 
   - name: "apple-app-with-space-preserved"
     function: config_dir
@@ -355,6 +410,44 @@ apple:
     env: { HOME: "/Users/alice" }
     output: "$HOME/Library/Application Support/My App"
     description: "App name preserved verbatim on Apple (no mangling)"
+
+  - name: "apple-ignores-xdg-env"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env:
+      HOME: "/Users/alice"
+      XDG_CONFIG_HOME: "/tmp/should-be-ignored"
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Apple strategy must not consult XDG_* env vars even when set"
+
+  - name: "apple-explicit-on-linux"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "strategy='apple' on a non-macOS platform is legal; the strategy fully determines layout"
+
+  - name: "apple-auto-on-macos"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Auto-mode on macOS picks apple, the native layout"
+
+  - name: "apple-auto-on-darwin"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "darwin"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "darwin is an alias for macos"
 
 # =============================================================================
 # Windows strategy
@@ -370,7 +463,8 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/MyApp"
 
   - name: "win-data-local-default"
@@ -380,7 +474,8 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/MyApp"
 
   - name: "win-cache-suffix"
@@ -390,18 +485,21 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/MyApp/Cache"
 
-  - name: "win-state-no-suffix"
+  - name: "win-state-is-null"
     function: state_dir
     args: { app: "MyApp" }
     strategy: "windows"
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$LOCALAPPDATA/MyApp"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Windows has no Known Folder for state; wheredirs returns null rather than aliasing to data"
 
   - name: "win-logs-suffix"
     function: logs_dir
@@ -410,42 +508,21 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/MyApp/Logs"
 
-  - name: "win-runtime-aliases-local"
+  - name: "win-runtime-is-null"
     function: runtime_dir
     args: { app: "MyApp" }
     strategy: "windows"
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$LOCALAPPDATA/MyApp"
-
-  # ---- roaming opt-in -------------------------------------------------------
-
-  - name: "win-config-roaming"
-    function: config_dir
-    args: { app: "MyApp" }
-    strategy: "windows"
-    roaming: true
-    platform: "windows"
-    env:
-      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$APPDATA/MyApp"
-
-  - name: "win-cache-roaming-keeps-suffix"
-    function: cache_dir
-    args: { app: "MyApp" }
-    strategy: "windows"
-    roaming: true
-    platform: "windows"
-    env:
-      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$APPDATA/MyApp/Cache"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Windows has no Known Folder for runtime files; wheredirs returns null rather than inventing a path"
 
   # ---- author segment -------------------------------------------------------
 
@@ -456,29 +533,21 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/Acme/MyApp"
 
-  - name: "win-logs-with-author-and-version"
+  - name: "win-logs-with-author"
     function: logs_dir
-    args: { app: "MyApp", author: "Acme", version: "1.0" }
+    args: { app: "MyApp", author: "Acme" }
     strategy: "windows"
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$LOCALAPPDATA/Acme/MyApp/1.0/Logs"
-
-  - name: "win-cache-roaming-author-version"
-    function: cache_dir
-    args: { app: "MyApp", author: "Acme", version: "1.0" }
-    strategy: "windows"
-    roaming: true
-    platform: "windows"
-    env:
-      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
-    output: "$APPDATA/Acme/MyApp/1.0/Cache"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp/Logs"
+    description: "Author path-joined before app, Logs suffix appended last"
 
   # ---- env-var fallback chain -----------------------------------------------
 
@@ -487,24 +556,21 @@ windows:
     args: { app: "MyApp" }
     strategy: "windows"
     platform: "windows"
-    env: { USERPROFILE: "C:/Users/alice" }
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: "C:/Users/alice"
+      HOME: ""
     output: "$USERPROFILE/AppData/Local/MyApp"
-
-  - name: "win-appdata-unset-uses-userprofile"
-    function: config_dir
-    args: { app: "MyApp" }
-    strategy: "windows"
-    roaming: true
-    platform: "windows"
-    env: { USERPROFILE: "C:/Users/alice" }
-    output: "$USERPROFILE/AppData/Roaming/MyApp"
 
   - name: "win-no-userprofile-falls-to-home"
     function: config_dir
     args: { app: "MyApp" }
     strategy: "windows"
     platform: "windows"
-    env: { HOME: "C:/Users/alice" }
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: ""
+      HOME: "C:/Users/alice"
     output: "$HOME/AppData/Local/MyApp"
 
   - name: "win-empty-localappdata-treated-as-unset"
@@ -515,17 +581,20 @@ windows:
     env:
       LOCALAPPDATA: ""
       USERPROFILE: "C:/Users/alice"
+      HOME: ""
     output: "$USERPROFILE/AppData/Local/MyApp"
 
-  - name: "win-roaming-no-appdata-no-userprofile-falls-to-home"
+  - name: "win-userprofile-trailing-slash-stripped"
     function: config_dir
     args: { app: "MyApp" }
     strategy: "windows"
-    roaming: true
     platform: "windows"
-    env: { HOME: "C:/Users/alice" }
-    output: "$HOME/AppData/Roaming/MyApp"
-    description: "roaming=True with no APPDATA and no USERPROFILE walks the full fallback chain to HOME"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: "C:/Users/alice/"
+      HOME: ""
+    output: "$USERPROFILE/AppData/Local/MyApp"
+    description: "USERPROFILE is in the trailing-slash strip list per SPEC §Graceful handling"
 
   - name: "win-localappdata-trailing-slash-stripped"
     function: config_dir
@@ -534,19 +603,9 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local/"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/MyApp"
-
-  - name: "win-appdata-trailing-slash-stripped"
-    function: config_dir
-    args: { app: "MyApp" }
-    strategy: "windows"
-    roaming: true
-    platform: "windows"
-    env:
-      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming/"
-    output: "$APPDATA/MyApp"
 
   - name: "win-config-app-with-space-preserved"
     function: config_dir
@@ -555,7 +614,8 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/My App"
     description: "App name preserved verbatim on Windows (no mangling)"
 
@@ -568,8 +628,49 @@ windows:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/alice/AppData/Local"
-      APPDATA: "C:/Users/alice/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/Acme/MyApp"
+
+  # ---- non-absolute env vars used verbatim (Windows, unlike XDG) ------------
+
+  - name: "win-non-absolute-localappdata-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "relative/path"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "Windows env vars are NOT validated for absoluteness; non-empty values are used verbatim. Contrast with XDG which treats non-absolute as unset."
+
+  - name: "win-unc-localappdata-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "//server/share/AppData"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "UNC-style paths in env vars are valid Windows paths and used verbatim"
+
+  # ---- windows strategy on a non-windows platform ---------------------------
+
+  - name: "win-explicit-on-macos"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "macos"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp"
+    description: "strategy='windows' on macOS is legal; cross-compile scenario"
 
 # =============================================================================
 # Single-folder strategy
@@ -669,14 +770,6 @@ single-folder:
     output: "$HOME/.myapp"
     description: "Leading/trailing whitespace is trimmed before collapse, so no .-myapp- or .--myapp"
 
-  - name: "single-with-version"
-    function: config_dir
-    args: { app: "myapp", version: "1.0" }
-    strategy: "single-folder"
-    platform: "linux"
-    env: { HOME: "/home/alice" }
-    output: "$HOME/.myapp/1.0"
-
   - name: "single-author-ignored"
     function: config_dir
     args: { app: "myapp", author: "Acme" }
@@ -698,6 +791,15 @@ errors:
     env: { HOME: "/home/alice" }
     raises: true
     description: "Unknown strategy value"
+
+  - name: "err-empty-strategy"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: ""
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Empty-string strategy is invalid (must be one of the four named strategies or None)"
 
   - name: "err-empty-app"
     function: config_dir
@@ -728,8 +830,14 @@ errors:
     args: { app: "vendor\\app" }
     strategy: "windows"
     platform: "windows"
-    env: { LOCALAPPDATA: "C:/Users/alice/AppData/Local" }
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+      USERPROFILE: "C:/Users/alice"
+      HOME: ""
     raises: true
+    description: "App-name validation must fire before env resolution; all env pinned to prove order-independence"
 
   - name: "err-app-with-backslash-on-linux"
     function: config_dir
@@ -782,8 +890,17 @@ project:
     strategy: null
     platform: "macos"
     env: { HOME: "/Users/dev" }
+    output: "$HOME/Library/Application Support/wheredirs"
+    description: "macOS auto-mode picks the native Apple layout"
+
+  - name: "wheredirs-self-config-macos-xdg-opt-in"
+    function: config_dir
+    args: { app: "wheredirs" }
+    strategy: "xdg"
+    platform: "macos"
+    env: { HOME: "/Users/dev" }
     output: "$HOME/.config/wheredirs"
-    description: "macOS auto-mode goes XDG, not Apple"
+    description: "Cross-platform CLI tools that want one layout everywhere pass strategy='xdg' explicitly"
 
   - name: "wheredirs-self-config-macos-apple"
     function: config_dir
@@ -800,32 +917,33 @@ project:
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/dev/AppData/Local"
-      APPDATA: "C:/Users/dev/AppData/Roaming"
+      USERPROFILE: ""
+      HOME: ""
     output: "$LOCALAPPDATA/hasansezertasan/wheredirs"
 
-  # Versioned app: pins how `version` interacts with the suffix on Windows logs.
-  - name: "versioned-windows-logs"
+  # Author with spaces preserved verbatim through path-join on Windows.
+  - name: "windows-author-with-space"
     function: logs_dir
-    args: { app: "MyApp", author: "Acme Corp", version: "2.1.0" }
+    args: { app: "MyApp", author: "Acme Corp" }
     strategy: "windows"
-    roaming: true
     platform: "windows"
     env:
       LOCALAPPDATA: "C:/Users/dev/AppData/Local"
-      APPDATA: "C:/Users/dev/AppData/Roaming"
-    output: "$APPDATA/Acme Corp/MyApp/2.1.0/Logs"
-    description: "Author with space + version + roaming + Logs suffix"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme Corp/MyApp/Logs"
+    description: "Author with space + Logs suffix on Windows; space in author is preserved (Windows path-join is verbatim, no normalization)"
 
   # Headless server: XDG state with a custom XDG_STATE_HOME.
   - name: "server-state-custom-xdg"
     function: state_dir
-    args: { app: "my-daemon", version: "1.0" }
+    args: { app: "my-daemon" }
     strategy: "xdg"
     platform: "linux"
     env:
       HOME: "/var/lib/daemon"
       XDG_STATE_HOME: "/var/lib/daemon/state"
-    output: "$XDG_STATE_HOME/my-daemon/1.0"
+    output: "$XDG_STATE_HOME/my-daemon"
 
   # Single-folder for a legacy dotfile-style tool.
   - name: "dotfile-style-single-folder"

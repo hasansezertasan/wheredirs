@@ -16,19 +16,29 @@ If you find yourself about to add a Python module, a `pyproject.toml` for the li
 
 ## Domain
 
-`wheredirs` resolves where standard application directories (config, cache, data, state, logs, runtime, plus their "local" vs "roaming" variants on Windows) live for a given app on the current platform. The two reference libraries that define the problem space:
+`wheredirs` resolves where standard application directories (config, data, cache, state, logs, runtime) live for a given app on the current platform. The three reference libraries that define the problem space:
 
-- [`platformdirs`](https://github.com/tox-dev/platformdirs) (Python) — opinionated per-OS resolution; XDG on Linux, native conventions on macOS/Windows.
-- [`etcetera`](https://github.com/lunacookies/etcetera) (Rust) — strategy-based; the caller picks XDG / Apple / Windows explicitly.
+- [`platformdirs`](https://github.com/tox-dev/platformdirs) (Python) — opinionated per-OS resolution; XDG on Linux, native conventions on macOS/Windows. Exposes a `roaming` flag for Windows.
+- [`appdirs`](https://github.com/ActiveState/appdirs) (Python) — the older library `platformdirs` was forked from; no longer actively maintained.
+- [`etcetera`](https://github.com/lunacookies/etcetera) (Rust) — strategy-based; the caller picks XDG / Apple / Windows explicitly. Machine-generates the Apple bundle ID from (TLD, author, app_name).
 
-They disagree on macOS in particular (XDG-style `~/.config/...` vs native `~/Library/Application Support/...`). The spec must take a position on this, or expose strategy as an input — silently picking one will make `tests.yaml` non-portable.
+Current spec position on the key design pressure points (see SPEC.md and the README "Related projects" section for the full divergence table vs platformdirs):
+
+- **macOS auto-mode picks `apple`** (native), matching platformdirs and diverging from etcetera's explicit-only design. Callers wanting cross-platform CLI consistency pass `strategy="xdg"`.
+- **No `roaming` flag.** Microsoft deprecated roaming AppData as of Windows 11; the Windows strategy uses `%LOCALAPPDATA%` only. Do not reintroduce `%APPDATA%` without explicit user direction.
+- **`author` is per-platform-convention.** Apple dot-joins into one bundle-ID segment; Windows path-joins as `<Company>\<Product>`; XDG and single-folder ignore it.
+- **`state_dir` and `runtime_dir` return `null` on Apple and Windows** — those platforms have no equivalent concept. Callers fall back via `state_dir(...) ?? data_dir(...)`.
+- **Four strategies**: `xdg`, `apple`, `windows`, `single-folder`. The fourth is a wheredirs addition (platformdirs and etcetera have no equivalent).
+
+When considering a spec change, run it through the principle: **"strategies should apply what their conventions recommend, not opinions."** If wheredirs is inventing behavior the source platform doesn't define, flag it with a "wheredirs extension" callout in SPEC.md; if the platform genuinely has no concept, return `null` rather than inventing an alias.
 
 ## Working on the spec
 
 When editing `SPEC.md` or `tests.yaml`:
 
-- Every test case must pin down all inputs that affect the output: platform, relevant env vars (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `APPDATA`, `LOCALAPPDATA`), app name, author, version, and any roaming/opinion flags. A case that depends on ambient state a target-language implementation can't reproduce is a bug in the case.
+- Every test case must pin down all inputs that affect the output: platform, relevant env vars (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE`), app name, author. A case that depends on ambient state a target-language implementation can't reproduce is a bug in the case.
 - Expected paths in `tests.yaml` should use forward slashes and a placeholder for the home directory (e.g. `$HOME`) so they're comparable across languages without each implementation re-deriving the user's actual home path.
+- A case may have `output:` set to (a) a path string with placeholders, (b) `null` to assert the function returns the language's null value, or (c) omit `output` and set `raises: true` to assert an error is raised.
 - Prefer adding a failing test case over describing a behavior in prose only. The YAML is the source of truth that downstream implementations are graded against; SPEC.md is the human-readable rationale.
 
 ## Conventions
