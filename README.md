@@ -5,7 +5,7 @@ Show where standard application directories (config, cache, data, state, logs, r
 - the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - Apple's Standard Directories
 - Windows' Known Folder Locations
-- the Unix single-folder convention (e.g. `~/.my-app`; the strategy lowercases and dash-joins, so `"My App"` → `.my-app`)
+- the Unix single-folder convention (e.g. `~/.my-app`; the strategy trims, lowercases, and collapses each run of ASCII whitespace to a single `-`, so `"My App"` → `.my-app`)
 
 A **ghost library** in the style of [whenwords](https://github.com/dbreunig/whenwords): this repo ships a spec (`SPEC.md`) and language-agnostic test cases (`tests.yaml`), not an implementation. Point your coding agent at them and generate the library in the language you actually want.
 
@@ -19,7 +19,7 @@ A **ghost library** in the style of [whenwords](https://github.com/dbreunig/when
 
 - **Strategies:** `xdg`, `apple`, `windows`, `single-folder`. Pass one via `strategy=`, or omit for auto-mode.
 - **Auto-mode is native everywhere**: `xdg` on Linux/BSD, `apple` on macOS, `windows` on Windows. To pick a non-native layout (e.g. `xdg` on macOS for cross-platform CLI consistency), pass `strategy=` explicitly.
-- **Windows uses `%LOCALAPPDATA%` only.** No `roaming` flag — Microsoft [deprecated roaming AppData as of Windows 11](https://learn.microsoft.com/en-us/windows/apps/design/app-settings/store-and-retrieve-app-data#roaming-data) and recommends Local for all new applications.
+- **Windows uses `%LOCALAPPDATA%` only.** No `roaming` flag — Microsoft [deprecated roaming AppData as of Windows 11](https://learn.microsoft.com/en-us/windows/apps/design/app-settings/store-and-retrieve-app-data#roaming-data) and recommends Local for all new applications. If `%LOCALAPPDATA%` is unset or empty, the resolver falls back to `%USERPROFILE%/AppData/Local`, then to `$HOME/AppData/Local`; if all three are unset, it raises. See [`SPEC.md` §Windows](SPEC.md#windows-strategywindows) for the full chain.
 - **`author` follows each platform's own convention** — not a single uniform rule. On Apple it **dot-joins** with `app` into one segment matching Apple's bundle-ID recommendation (`~/Library/Application Support/com.acme.MyApp`). On Windows it **nests** as `<Company>\<Product>` per Microsoft guidance (`%LOCALAPPDATA%\Acme\MyApp`). XDG and single-folder ignore it.
 - **No `version` parameter.** Versioned paths aren't part of any platform's spec — they're an `appdirs`/`platformdirs` Python convention. Callers that want versioned subdirs compose them themselves: `Path(config_dir("MyApp")) / "1.0"`.
 

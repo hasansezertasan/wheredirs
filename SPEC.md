@@ -58,20 +58,20 @@ The table below summarises what each function returns under each strategy. **`nu
 
 | Function       | XDG                                                                  | Apple                                       | Windows                                                | single-folder      |
 | -------------- | -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------ | ------------------ |
-| `config_dir`   | `${XDG_CONFIG_HOME:-$HOME/.config}/{app}`                            | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{author}/{app}`                        | `$HOME/.{app}`     |
-| `data_dir`     | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}`                         | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{author}/{app}`                        | `$HOME/.{app}`     |
-| `cache_dir`    | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}`                              | `$HOME/Library/Caches/{seg}`                | `%LOCALAPPDATA%/{author}/{app}/Cache`                  | `$HOME/.{app}`     |
+| `config_dir`   | `${XDG_CONFIG_HOME:-$HOME/.config}/{app}`                            | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{a/}{app}`                             | `$HOME/.{app}`     |
+| `data_dir`     | `${XDG_DATA_HOME:-$HOME/.local/share}/{app}`                         | `$HOME/Library/Application Support/{seg}`   | `%LOCALAPPDATA%/{a/}{app}`                             | `$HOME/.{app}`     |
+| `cache_dir`    | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}`                              | `$HOME/Library/Caches/{seg}`                | `%LOCALAPPDATA%/{a/}{app}/Cache`                       | `$HOME/.{app}`     |
 | `state_dir`    | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}`                        | **`null`**                                  | **`null`**                                             | `$HOME/.{app}`     |
-| `logs_dir`     | `<state_base>/{app}/logs` ⁽ʷᵉˣᵗ⁾                                      | `$HOME/Library/Logs/{seg}`                  | `%LOCALAPPDATA%/{author}/{app}/Logs` ⁽ʷᵉˣᵗ⁾            | `$HOME/.{app}`     |
-| `runtime_dir`  | `${XDG_RUNTIME_DIR}/{app}` (fallback to `cache_dir`) ⁽ʷᵉˣᵗ⁾           | **`null`**                                  | **`null`**                                             | `$HOME/.{app}`     |
+| `logs_dir`     | `<state_base>/{app}/logs` ⁽ʷᵉˣᵗ⁾                                      | `$HOME/Library/Logs/{seg}`                  | `%LOCALAPPDATA%/{a/}{app}/Logs` ⁽ʷᵉˣᵗ⁾                  | `$HOME/.{app}`     |
+| `runtime_dir`  | `${XDG_RUNTIME_DIR}/{app}` ⁽ʷᵉˣᵗ-fallback⁾                            | **`null`**                                  | **`null`**                                             | `$HOME/.{app}`     |
 
 Notation:
-- `{seg}` on Apple = `{app}` when `author` is None, or `{author}.{app}` when given (dot-join into a single segment, per Apple bundle-ID convention).
-- `{author}/{app}` on Windows = `{app}` when `author` is None, or `{author}/{app}` when given (path-join into nested segments, per Microsoft `<Company>\<Product>` convention).
-- ⁽ʷᵉˣᵗ⁾ marks a `wheredirs` extension — the source platform does not define this; `wheredirs` picks a value to keep tests portable.
+- `{seg}` on Apple = `{app}` when `author` is `None`/empty, or `{author}.{app}` when given (dot-join into a single segment, per Apple bundle-ID convention).
+- `{a/}` on Windows = the literal string `{author}/` when `author` is given, or **the empty string** when `author` is `None`/empty — both the author segment **and** its trailing separator are omitted, so `config_dir(app="MyApp")` is `%LOCALAPPDATA%/MyApp`, not `%LOCALAPPDATA%//MyApp`. (Path-join into nested segments, per Microsoft `<Company>\<Product>` convention.)
+- ⁽ʷᵉˣᵗ⁾ marks a `wheredirs` extension — the source platform does not define this; `wheredirs` picks a value to keep tests portable. ⁽ʷᵉˣᵗ-fallback⁾ on `runtime_dir` flags both the XDG-defined-but-unspecified fallback path (resolves via `cache_dir`; see XDG section) and the wheredirs extension status.
 - `single-folder` returns the same path for all six kinds — it has no per-kind suffixes or aliasing rules.
 
-**Why does Apple/Windows return `null` for `state_dir` and `runtime_dir`?** Apple's File System Programming Guide defines no "state" or "runtime" directories; macOS apps that need persistent state put it in `Application Support/` and treat ephemeral runtime files via `NSTemporaryDirectory()` or app-private paths. Windows has no Known Folder ID for either either. Rather than have `wheredirs` invent paths the platforms don't acknowledge (and risk callers writing wrongly-permissioned sockets or roaming state across machines), the spec returns `null`. Callers who want a "best-effort" path on every platform can fall back explicitly: `state_dir(...) ?? data_dir(...)`. This is consistent with `etcetera`'s approach and surfaces the platform asymmetry rather than papering over it.
+**Why does Apple/Windows return `null` for `state_dir` and `runtime_dir`?** Apple's File System Programming Guide defines no "state" or "runtime" directories; macOS apps that need persistent state put it in `Application Support/` and treat ephemeral runtime files via `NSTemporaryDirectory()` or app-private paths. Windows has no Known Folder ID for either. Rather than have `wheredirs` invent paths the platforms don't acknowledge (and risk callers writing wrongly-permissioned sockets or roaming state across machines), the spec returns `null`. Callers who want a "best-effort" path on every platform can fall back explicitly: `state_dir(...) ?? data_dir(...)`. This is consistent with `etcetera`'s approach and surfaces the platform asymmetry rather than papering over it.
 
 ## Strategies
 
@@ -95,7 +95,7 @@ Auto mode never picks `single-folder` — that's a *layout* preference, not a pl
 
 Follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/). Used on Linux/BSD by default; available on any platform via explicit `strategy="xdg"`.
 
-The directory layout, env-var names, default paths, and the "non-absolute is unset" rule below all come directly from the XDG spec. Two of the rules in this section go beyond what XDG specifies — they're flagged as **`wheredirs` extensions** so implementers know which lines are derived from XDG and which are wheredirs' own opinion.
+The directory layout, env-var names, default paths, and the "non-absolute is unset" rule below all come directly from the XDG spec. Several of the rules in this section go beyond what XDG specifies — they're flagged as **`wheredirs` extensions** so implementers know which lines are derived from XDG and which are wheredirs' own opinion.
 
 | Kind       | Path                                                       |
 | ---------- | ---------------------------------------------------------- |
@@ -104,19 +104,23 @@ The directory layout, env-var names, default paths, and the "non-absolute is uns
 | cache      | `${XDG_CACHE_HOME:-$HOME/.cache}/{app}`        |
 | state      | `${XDG_STATE_HOME:-$HOME/.local/state}/{app}`  |
 | logs       | `<state_base>/{app}/logs`                      |
-| runtime    | `${XDG_RUNTIME_DIR}/{app}` — see fallback rule |
+| runtime    | `${XDG_RUNTIME_DIR}/{app}` †                    |
+
+† When `XDG_RUNTIME_DIR` is unset, empty, or non-absolute, the path falls back to `cache_dir(...)` — see the runtime-fallback rule below.
 
 Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segment is always the **last** path component, after `{app}`. So `logs_dir(app="MyApp")` resolves to `$HOME/.local/state/MyApp/logs`.
 
 > **wheredirs extension — XDG logs.** The XDG Base Directory Specification does not define a directory for log files. `wheredirs` places logs under the state directory (matching the systemd/journalctl convention of treating logs as machine-state) with a `/logs` suffix to keep them visually distinct from arbitrary state files. Implementations following XDG strictly would have to invent this themselves; `wheredirs` picks one answer so the path is portable.
 
-**XDG env-var resolution rules:**
+**XDG env-var resolution rules** (apply to `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`):
 
-1. If the variable is unset or empty, use the documented default.
+1. If the variable is unset or the empty string, use the documented default. Values containing only whitespace are **not** treated as empty — they are passed through to rule 2 and almost certainly rejected by the absoluteness check.
 2. If the variable is set but **not** an absolute path (does not start with `/`), per the XDG spec it must be treated as unset.
 3. Otherwise use the variable's value verbatim.
 
-**wheredirs extension — runtime fallback.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(...)`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
+**`HOME` is exempt from the absoluteness rule.** `HOME` is the host-provided base path, not an XDG variable. If `HOME` is unset or empty under the XDG strategy, the implementation **raises** — there is no fallback chain on Linux/BSD analogous to the Windows `LOCALAPPDATA → USERPROFILE → HOME` chain. A non-absolute `HOME` is used verbatim (which will usually produce a relative output path); validating `HOME` is the host's job, not `wheredirs`'.
+
+**wheredirs extension — runtime fallback.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(app, author, strategy="xdg")`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The fallback re-runs the full `cache_dir` resolution — `XDG_CACHE_HOME` validation (rules 1–3 above) and trailing-slash stripping all apply. Implementations should call the same internal resolver they use for `cache_dir`, not inline the path. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
 
 > **⚠ Security note — runtime fallback.** The fallback path under `cache_dir` does **NOT** carry the guarantees a real `XDG_RUNTIME_DIR` does: not guaranteed `0700`, not guaranteed user-owned, not cleared on logout, and persists across reboots on most systems. Callers writing unix domain sockets, lock files, pid files, or any primitive that relies on those guarantees MUST verify or enforce the permissions themselves (e.g. `mkdir(..., 0o700)` + `chown` + stale-file removal) before use, OR detect that the fallback is in effect and refuse to operate. Treat `runtime_dir`'s output as "ephemeral *location*", not as "ephemeral *with isolation*", whenever `XDG_RUNTIME_DIR` was unset.
 
@@ -189,9 +193,11 @@ If `author` is `None`, the `{author}` segment (and its separator) is omitted:
 %LOCALAPPDATA%/{app}{suffix}
 ```
 
-**Env-var resolution.** If `%LOCALAPPDATA%` is unset or empty, fall back to `${USERPROFILE}/AppData/Local`. If `%USERPROFILE%` is also unset or empty, fall back to `$HOME/AppData/Local`.
+**Env-var resolution.** If `%LOCALAPPDATA%` is unset or the empty string, fall back to `${USERPROFILE}/AppData/Local`. If `%USERPROFILE%` is also unset or the empty string, fall back to `$HOME/AppData/Local`. If `$HOME` is also unset or the empty string, the implementation **raises** — there is no further fallback. The synthesized `/AppData/Local` segment is always appended with a single forward slash regardless of whether the base ended in `\`, `/`, or nothing (trailing-slash stripping per §Graceful handling fires first).
 
 Unlike the XDG rules, Windows env vars are **not** checked for absoluteness. Any non-empty value is used verbatim. Windows paths legitimately take many shapes — drive-letter (`C:\...`), UNC (`\\server\share\...`), `\\?\` namespaced, mapped drives — and rejecting "non-absolute" forms would reject valid input. The only fallback trigger is unset-or-empty.
+
+**Whitespace-only is not empty.** A value of `"   "` (spaces, tabs) is non-empty and is used verbatim — the fallback chain does not fire. This matches Win32's `GetEnvironmentVariable` behavior and avoids implementations diverging on whether to call `.strip()` before the empty check.
 
 > **wheredirs extensions — `/Cache` and `/Logs` suffixes.** The Known Folder IDs catalog has no dedicated entries for per-app cache or log subdirectories under AppData (only `FOLDERID_LocalAppDataLow` for low-integrity processes, which `wheredirs` does not expose). The `/Cache` and `/Logs` suffixes are conventional — used by Microsoft and many Windows apps but not formally standardised. `wheredirs` picks them to keep cache and logs visually distinct from arbitrary state within the app folder.
 
@@ -210,8 +216,10 @@ The classic Unix single-dotfolder convention: one folder under `$HOME` holds eve
 `author` is **ignored**. `app` is mangled in three steps, in this order, before being prefixed with `.`:
 
 1. **Trim** leading and trailing whitespace.
-2. **Collapse** any run of one-or-more whitespace characters (`\s+`, i.e. spaces, tabs, newlines) to a single `-`.
+2. **Collapse** any run of one-or-more whitespace characters to a single `-`.
 3. **Lowercase** the result.
+
+**"Whitespace" means ASCII whitespace only** — the characters in the set `[ \t\n\r\f\v]` (U+0020, U+0009, U+000A, U+000D, U+000C, U+000B). Unicode whitespace (NBSP U+00A0, ideographic space U+3000, etc.) is **not** trimmed or collapsed; it passes through to the lowercasing step verbatim. This is pinned because regex `\s` semantics differ across languages — Python and JavaScript's `\s` defaults to Unicode-aware, Go and Rust default to ASCII, .NET varies by flag — and a uniform answer is needed for `tests.yaml` to be portable. Implementations using `\s` MUST configure it to ASCII-only or use the explicit character class.
 
 Examples:
 
@@ -229,9 +237,9 @@ This is the only strategy that mangles `app`; the others use it verbatim. Non-wh
 
 ## App and author: normalisation rules
 
-- `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is trimmed + `\s+` → `-` + lowercased (see Single-folder section).
-- `author` is verbatim where used. On Windows it is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. On Apple it is dot-joined with `app` verbatim — embedded dots are not deduplicated. This is intentional; callers may want a sub-vendor under a parent vendor or a fully-qualified reverse-DNS string.
-- `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment". Omitting the parameter entirely and passing `None` explicitly are equivalent.
+- `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is trimmed + ASCII-whitespace-collapsed to `-` + lowercased (see Single-folder section).
+- `author` is verbatim where used. On Windows it is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. On Apple it is dot-joined with `app` verbatim — embedded dots, slashes, and backslashes are **not** rejected or escaped. An `author="a/b"` on Apple yields the segment `a/b.{app}`, which is two path components, not one — this is intentional, mirroring the Windows multi-segment behavior, and lets callers compose reverse-DNS sub-vendors without `wheredirs` second-guessing the shape. Callers who require a single bundle-ID segment must pre-validate.
+- For `author`: `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment". Omitting the parameter entirely and passing `None` explicitly are equivalent. The empty string `""` is **also** treated as "omit this segment" — there is no Apple/Windows path where an empty author segment would be useful, and the alternative (`{author}.{app}` → `.{app}` or `{author}/{app}` → `/{app}`) produces malformed paths. (`app` itself is required; see Error Handling.)
 
 ### What each strategy ignores
 
@@ -270,17 +278,25 @@ which_strategy("windows") -> "windows"
 | `"linux"`, `"freebsd"`, `"openbsd"`, `"netbsd"`, `"dragonfly"` | `"xdg"`      |
 | `"macos"`, `"darwin"`                                    | `"apple"`    |
 | `"windows"`, `"win32"`                                   | `"windows"`  |
-| anything else (including `""`, `None`)                   | **raises**   |
+| anything else (including `""`, `None`, mixed case like `"Linux"`) | **raises**   |
 
-Implementations must not silently extend this set with their language's own aliases; if a caller passes `sys.platform` directly and it isn't in the table, the implementation should map it before calling (or accept the error).
+Matching is **case-sensitive**: `"linux"` is accepted, `"Linux"` raises. Implementations must not silently extend this set with their language's own aliases; if a caller passes `sys.platform` directly and it isn't in the table, the implementation should map it before calling (or accept the error).
+
+In `tests.yaml`, `which_strategy` cases use **positional** `args` (a list with one element): `args: ["linux"]`. All other functions use **map** form (`args: { app: "MyApp", author: "Acme" }`). This is the only shape distinction in the fixture schema.
 
 ## Error Handling
 
 ### Required errors
 
-1. `strategy` set to anything other than `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`, or `None`. This explicitly includes the empty string `""`.
-2. `app` is `None`, empty string, or contains a path separator (`/` or `\`). Validation happens *before* any env resolution — `app` errors are raised regardless of whether the platform's required env vars are set.
-3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, and unknown strings such as `"plan9"`.
+1. `strategy` set to anything other than `"xdg"`, `"apple"`, `"windows"`, `"single-folder"`, or `None`. This explicitly includes the empty string `""`. Strategy names are case-sensitive — `"XDG"`, `"Apple"`, `"Windows"` all raise.
+2. `app` fails any of the following checks. Validation happens *before* any env resolution — `app` errors are raised regardless of whether the platform's required env vars are set.
+   - `app` is `None` (or the language equivalent).
+   - `app` is the empty string `""`.
+   - `app` contains a path separator: `/` or `\`.
+   - `app` contains an embedded NUL byte (`\0`).
+   - `app` consists entirely of ASCII whitespace (would mangle to the empty string under `single-folder`, producing the malformed path `~/.`).
+   - `app` is `.` or `..` (would produce `~/..` etc. — outright path traversal).
+3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, mixed-case variants such as `"Linux"` or `"MACOS"`, and unknown strings such as `"plan9"`. Recognition is case-sensitive on the strings in the table below.
 
 The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go, etc.). Tests assert *that* an error is raised, not its concrete type.
 
@@ -298,7 +314,7 @@ All paths returned by `wheredirs` use **forward slashes** in the spec and tests,
 Each case in `tests.yaml` declares the full input environment. The expected `output` is one of:
 
 - A path string with `$HOME`-style placeholders matching keys in `env` — the test runner substitutes those placeholders from `env` before comparing to the implementation's output.
-- `null` — the implementation must return the language's null/none value (Python `None`, Rust `Option::None`, Go zero string with `ok=false`, TypeScript `null`). Used for functions that have no concept on a given strategy (e.g. `state_dir`/`runtime_dir` on Apple and Windows).
+- `null` — the implementation must return the language's null/none value (Python `None`, Rust `Option::None`, TypeScript `null`, Go: whatever the signature exposes — see INSTALL.md's per-language notes). Used for functions that have no concept on a given strategy (e.g. `state_dir`/`runtime_dir` on Apple and Windows).
 - Omitted, with `raises: true` instead — the implementation must raise/return an error.
 
 ```yaml
@@ -351,7 +367,7 @@ The test runner substitutes `$VAR`-style placeholders in each case's `output` us
 
 1. Only keys present in the case's `env` are substituted. Variables not in `env` (e.g. `$HOMEBREW_PREFIX`) are left as literal text.
 2. Use **longest-match-first** ordering when one placeholder name is a prefix of another (e.g. substitute `$XDG_CONFIG_HOME` before `$HOME`). A naive `s/$HOME/.../` pass over the string is incorrect.
-3. The substituted string is compared after normalising path separators to `/` on both sides.
+3. After substitution, on both expected and actual: normalise `\` → `/`, then **collapse runs of `/` to a single `/`**, then strip any trailing `/`. The collapse step matters when an env value has a trailing slash (e.g. `HOME="/home/alice/"` substituted into `"$HOME/.config/MyApp"` produces `/home/alice//.config/MyApp` — collapsing to `/home/alice/.config/MyApp` is what makes trailing-slash test cases pass without each case having to pre-strip its env values).
 
 ## Changelog
 
