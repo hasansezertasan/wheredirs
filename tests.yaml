@@ -1,0 +1,1490 @@
+# wheredirs Test Suite
+# Language-agnostic test cases. See SPEC.md for the complete behavioral specification.
+#
+# Each case declares all inputs that affect the output: args + strategy + platform + env.
+# Expected `output` uses placeholders ($HOME, $XDG_CONFIG_HOME, $LOCALAPPDATA, ...) that match
+# keys in the `env` block. The test runner substitutes those placeholders before comparing
+# to the implementation's return value.
+#
+# Variables not declared in `env` are treated as unset. Some cases below also
+# pin variables to the empty string explicitly (e.g. `USERPROFILE: ""` on a
+# Windows happy-path case where the fallback chain should never fire) — those
+# explicit pins are redundant with the rule above but make intent unambiguous
+# and immune to a sloppy runner that leaks ambient host env vars.
+#
+# YAML null vs string "null": where this file writes `args: { app: null }` or
+# `output: null`, that is YAML's null value — runners must pass the language's
+# native null (Python None, Rust Option::None, TypeScript null, Go nil or the
+# convention from INSTALL.md's per-language notes), NOT the four-character
+# string "null". Likewise `strategy: null` means "auto-mode" (omit / None),
+# not the string "null".
+
+version: "0.1.0"
+
+# =============================================================================
+# which_strategy
+# =============================================================================
+#
+# which_strategy cases use `args` (positional), no `env`, no `platform` —
+# the function takes the platform name as its only argument and consults no
+# ambient state. Runners should treat absent `env` / `platform` as "not
+# applicable" rather than reading the host's real values.
+
+which_strategy:
+  - name: "linux-picks-xdg"
+    function: which_strategy
+    args: ["linux"]
+    output: "xdg"
+  - name: "macos-picks-apple"
+    function: which_strategy
+    args: ["macos"]
+    output: "apple"
+    description: "Auto-mode on macOS picks the native Apple layout"
+  - name: "darwin-alias-of-macos"
+    function: which_strategy
+    args: ["darwin"]
+    output: "apple"
+  - name: "windows-picks-windows"
+    function: which_strategy
+    args: ["windows"]
+    output: "windows"
+  - name: "win32-alias-of-windows"
+    function: which_strategy
+    args: ["win32"]
+    output: "windows"
+  - name: "freebsd-picks-xdg"
+    function: which_strategy
+    args: ["freebsd"]
+    output: "xdg"
+  - name: "openbsd-picks-xdg"
+    function: which_strategy
+    args: ["openbsd"]
+    output: "xdg"
+  - name: "netbsd-picks-xdg"
+    function: which_strategy
+    args: ["netbsd"]
+    output: "xdg"
+  - name: "dragonfly-picks-xdg"
+    function: which_strategy
+    args: ["dragonfly"]
+    output: "xdg"
+
+  # ---- case sensitivity (per SPEC §which_strategy) --------------------------
+  - name: "which-strategy-rejects-titlecase-linux"
+    function: which_strategy
+    args: ["Linux"]
+    raises: true
+    description: "Recognition is case-sensitive; only lowercase short names are accepted"
+
+  - name: "which-strategy-rejects-uppercase-macos"
+    function: which_strategy
+    args: ["MACOS"]
+    raises: true
+
+  - name: "which-strategy-rejects-titlecase-windows"
+    function: which_strategy
+    args: ["Windows"]
+    raises: true
+
+  - name: "which-strategy-rejects-whitespace-only"
+    function: which_strategy
+    args: ["   "]
+    raises: true
+    description: "Whitespace-only platform name is not in the recognised set; SPEC §which_strategy says 'anything else raises' — pinned explicitly since `\" \"` is a plausible accident from a caller doing `sys.platform.strip().lower()` on an empty string"
+
+# =============================================================================
+# XDG strategy (explicit and auto on linux/macOS)
+# =============================================================================
+
+xdg:
+  # ---- defaults (no XDG_* set) -----------------------------------------------
+
+  - name: "xdg-config-default"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp"
+
+  - name: "xdg-data-default"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.local/share/MyApp"
+
+  - name: "xdg-cache-default"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.cache/MyApp"
+
+  - name: "xdg-state-default"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.local/state/MyApp"
+
+  - name: "xdg-logs-under-state"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.local/state/MyApp/logs"
+
+  - name: "xdg-runtime-set"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "/run/user/1000" }
+    output: "$XDG_RUNTIME_DIR/MyApp"
+
+  - name: "xdg-runtime-fallback-to-cache"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.cache/MyApp"
+    description: "XDG_RUNTIME_DIR unset -> falls back to cache_dir"
+
+  # ---- XDG_* env vars set ----------------------------------------------------
+
+  - name: "xdg-config-honors-env"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CONFIG_HOME: "/tmp/cfg" }
+    output: "$XDG_CONFIG_HOME/MyApp"
+
+  - name: "xdg-data-honors-env"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "/srv/data" }
+    output: "$XDG_DATA_HOME/MyApp"
+
+  - name: "xdg-cache-honors-env"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "/var/cache/alice" }
+    output: "$XDG_CACHE_HOME/MyApp"
+
+  - name: "xdg-state-honors-env"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "/var/state/alice" }
+    output: "$XDG_STATE_HOME/MyApp"
+
+  - name: "xdg-logs-tracks-state-env"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "/var/state/alice" }
+    output: "$XDG_STATE_HOME/MyApp/logs"
+
+  - name: "xdg-logs-empty-state-env-falls-back-to-default"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "" }
+    output: "$HOME/.local/state/MyApp/logs"
+    description: "logs_dir resolves through the state_dir base; empty XDG_STATE_HOME must fall back to the documented default. Guards against impls that inline $HOME/.local/state for logs instead of reusing the state resolver."
+
+  - name: "xdg-logs-relative-state-env-is-unset"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "relative/state" }
+    output: "$HOME/.local/state/MyApp/logs"
+    description: "Non-absolute XDG_STATE_HOME is treated as unset for logs_dir, same as for state_dir — pins the state-base resolution shares the absoluteness check"
+
+  # ---- empty / relative env vars (per XDG spec: treated as unset) -----------
+
+  - name: "xdg-config-empty-env-is-unset"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CONFIG_HOME: "" }
+    output: "$HOME/.config/MyApp"
+
+  - name: "xdg-config-relative-env-is-unset"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CONFIG_HOME: "relative/path" }
+    output: "$HOME/.config/MyApp"
+    description: "Non-absolute XDG_CONFIG_HOME is treated as unset per XDG spec"
+
+  - name: "xdg-data-empty-env-is-unset"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "" }
+    output: "$HOME/.local/share/MyApp"
+    description: "Empty-string XDG_DATA_HOME treated as unset — parity with XDG_CONFIG_HOME (SPEC §XDG env-var resolution applies to all four XDG_*_HOME vars)"
+
+  - name: "xdg-data-relative-env-is-unset"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "relative/share" }
+    output: "$HOME/.local/share/MyApp"
+    description: "Non-absolute XDG_DATA_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-cache-empty-env-is-unset"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "" }
+    output: "$HOME/.cache/MyApp"
+    description: "Empty-string XDG_CACHE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-cache-relative-env-is-unset"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "relative/cache" }
+    output: "$HOME/.cache/MyApp"
+    description: "Non-absolute XDG_CACHE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-state-empty-env-is-unset"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "" }
+    output: "$HOME/.local/state/MyApp"
+    description: "Empty-string XDG_STATE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-state-relative-env-is-unset"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "relative/state" }
+    output: "$HOME/.local/state/MyApp"
+    description: "Non-absolute XDG_STATE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-cache-trailing-slash-stripped"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "/var/cache/alice/" }
+    output: "$XDG_CACHE_HOME/MyApp"
+    description: "Trailing slash on env var stripped before joining"
+
+  - name: "xdg-data-trailing-slash-stripped"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "/srv/data/" }
+    output: "$XDG_DATA_HOME/MyApp"
+    description: "Trailing-slash strip applies to XDG_DATA_HOME too — parity with XDG_CACHE_HOME per SPEC §Graceful (covers all path-valued env vars)"
+
+  - name: "xdg-state-trailing-slash-stripped"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "/var/state/alice/" }
+    output: "$XDG_STATE_HOME/MyApp"
+    description: "Trailing-slash strip applies to XDG_STATE_HOME too — parity with XDG_CACHE_HOME"
+
+  - name: "xdg-runtime-trailing-slash-stripped"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "/run/user/1000/" }
+    output: "$XDG_RUNTIME_DIR/MyApp"
+
+  - name: "xdg-runtime-relative-is-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "tmp/runtime" }
+    output: "$HOME/.cache/MyApp"
+    description: "Non-absolute XDG_RUNTIME_DIR is treated as unset and falls back to cache_dir"
+
+  - name: "xdg-config-app-with-space-preserved"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/My App"
+    description: "App name preserved verbatim on XDG (no mangling)"
+
+  # ---- author is ignored on XDG ---------------------------------------------
+
+  - name: "xdg-config-author-ignored"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp"
+
+  # ---- auto-mode on linux selects XDG ---------------------------------------
+
+  - name: "xdg-auto-on-linux"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp"
+
+  - name: "xdg-explicit-on-macos"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/.config/MyApp"
+    description: "Explicit strategy='xdg' on macOS is legal and gives the same path as on Linux — useful for cross-platform CLI tooling that wants one layout everywhere"
+
+  # ---- BSD auto-mode dir resolution (matches which_strategy) ----------------
+
+  - name: "xdg-auto-on-freebsd"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "freebsd"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/MyApp"
+    description: "Auto-mode on BSDs picks xdg too; guards against hard-coding only linux/macos"
+
+  # ---- runtime fallback edge cases ------------------------------------------
+
+  - name: "xdg-runtime-empty-is-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "" }
+    output: "$HOME/.cache/MyApp"
+    description: "Empty XDG_RUNTIME_DIR is treated as unset and falls back to cache_dir"
+
+  - name: "xdg-runtime-fallback-honours-xdg-cache-home"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env:
+      HOME: "/home/alice"
+      XDG_CACHE_HOME: "/custom/cache"
+    output: "$XDG_CACHE_HOME/MyApp"
+    description: "Runtime fallback resolves via the full cache_dir path (not a hard-coded $HOME/.cache); a custom XDG_CACHE_HOME must be honoured"
+
+  - name: "xdg-runtime-fallback-rejects-relative-xdg-cache-home"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env:
+      HOME: "/home/alice"
+      XDG_CACHE_HOME: "relative/path"
+    output: "$HOME/.cache/MyApp"
+    description: "Runtime fallback re-runs XDG_CACHE_HOME validation; a non-absolute value is treated as unset and falls through to the documented default"
+
+  # ---- HOME trailing slash (HOME is in the strip list per SPEC §Graceful) ---
+
+  - name: "xdg-home-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice/" }
+    output: "$HOME/.config/MyApp"
+    description: "HOME is in the trailing-slash strip list per SPEC §Graceful handling"
+
+  - name: "xdg-home-multiple-trailing-slashes-collapsed"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice///" }
+    output: "$HOME/.config/MyApp"
+    description: "Multiple trailing slashes on HOME are collapsed before joining"
+
+  - name: "xdg-home-non-absolute-used-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "alice" }
+    output: "$HOME/.config/MyApp"
+    description: "HOME is exempt from the XDG absoluteness rule (SPEC §XDG, 'HOME is the host-provided base path, not an XDG variable'). A non-absolute HOME is used verbatim, producing a relative output path. Guards against impls that accidentally extend the XDG_*_HOME absoluteness check to HOME itself."
+
+  - name: "xdg-runtime-ignores-author"
+    function: runtime_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_RUNTIME_DIR: "/run/user/1000" }
+    output: "$XDG_RUNTIME_DIR/MyApp"
+    description: "XDG ignores author across all kinds, runtime_dir included — pins that the runtime branch doesn't accidentally consume author"
+
+  - name: "xdg-logs-ignores-xdg-runtime-dir"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env:
+      HOME: "/home/alice"
+      XDG_RUNTIME_DIR: "/run/user/1000"
+      XDG_STATE_HOME: "/custom/state"
+    output: "$XDG_STATE_HOME/MyApp/logs"
+    description: "logs_dir reads XDG_STATE_HOME (not XDG_RUNTIME_DIR) even when both are set — pins that logs/runtime env channels don't cross-contaminate"
+
+  - name: "xdg-on-windows-honours-xdg-config-home"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "windows"
+    env:
+      HOME: "/Users/alice"
+      XDG_CONFIG_HOME: "/Users/alice/.xdg/config"
+    output: "$XDG_CONFIG_HOME/MyApp"
+    description: "strategy='xdg' on windows must honour XDG_* env vars (not just defaults) — proves the strategy consults its own env regardless of host platform"
+
+  - name: "xdg-on-windows-runtime-falls-back-to-cache"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "windows"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/.cache/MyApp"
+    description: "The runtime->cache fallback is a property of the XDG strategy, not the linux platform. strategy='xdg' on windows with no XDG_RUNTIME_DIR must still fall to cache_dir — pins that strategy fully determines layout (SPEC §Auto: 'the strategy fully determines the layout — platform is only consulted by auto-mode')"
+
+  - name: "xdg-app-cjk-passes-through-verbatim"
+    function: config_dir
+    args: { app: "日本語アプリ" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/日本語アプリ"
+    description: "Non-ASCII app names pass through verbatim under XDG (Unicode normalisation is out of scope per SPEC §Out of scope; this case pins the verbatim-passthrough contract)"
+
+  - name: "xdg-app-cyrillic-passes-through-verbatim"
+    function: data_dir
+    args: { app: "МойПриложение" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.local/share/МойПриложение"
+    description: "Cyrillic app name passes through verbatim — same contract, different script"
+
+  # ---- explicit strategy is legal on any platform ---------------------------
+
+  - name: "xdg-explicit-on-windows"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "windows"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/.config/MyApp"
+    description: "strategy='xdg' on a windows platform is legal; platform only matters for auto-mode. HOME uses a forward-slash POSIX-style root because the xdg strategy joins under $HOME with /; the Windows env-var fallback chain (LOCALAPPDATA/USERPROFILE/HOME) is not consulted under xdg."
+
+# =============================================================================
+# Apple strategy (opt-in)
+# =============================================================================
+
+apple:
+  - name: "apple-config"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+
+  - name: "apple-data-same-as-config"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+
+  - name: "apple-cache"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Caches/MyApp"
+
+  - name: "apple-state-is-null"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: null
+    description: "Apple has no state_dir concept; wheredirs returns null rather than aliasing to Application Support"
+
+  - name: "apple-state-with-author-still-null"
+    function: state_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: null
+    description: "Author has no effect on a null return"
+
+  - name: "apple-logs"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Logs/MyApp"
+
+  - name: "apple-runtime-is-null"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: null
+    description: "Apple has no runtime_dir concept; wheredirs returns null rather than aliasing to Caches (which lacks the 0700/session-lifetime guarantees a real runtime dir needs)"
+
+  - name: "apple-config-with-author"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/Acme.MyApp"
+    description: "Author and app dot-joined into a SINGLE path segment (matches Apple bundle-ID convention, not Windows-style nesting)"
+
+  - name: "apple-cache-with-author"
+    function: cache_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Caches/Acme.MyApp"
+    description: "Dot-join applies to every kind, not just config"
+
+  - name: "apple-logs-with-author"
+    function: logs_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Logs/Acme.MyApp"
+    description: "Author dot-joined with app into one segment under ~/Library/Logs"
+
+  - name: "apple-config-reverse-dns-author"
+    function: config_dir
+    args: { app: "MyApp", author: "com.acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/com.acme.MyApp"
+    description: "Reverse-DNS author yields a single bundle-ID-shaped segment, exactly as Apple recommends"
+
+  - name: "apple-config-author-with-existing-dot"
+    function: config_dir
+    args: { app: "myapp", author: "io.github.acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/io.github.acme.myapp"
+    description: "An author that already contains dots is dot-joined verbatim; wheredirs does not deduplicate or normalize"
+
+  - name: "apple-config-author-omitted-falls-back"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Without author, the segment is just `app` (no leading dot, no synthesized prefix)"
+
+  - name: "apple-app-with-space-preserved"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/My App"
+    description: "App name preserved verbatim on Apple (no mangling)"
+
+  - name: "apple-ignores-xdg-env"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env:
+      HOME: "/Users/alice"
+      XDG_CONFIG_HOME: "/tmp/should-be-ignored"
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Apple strategy must not consult XDG_* env vars even when set"
+
+  - name: "apple-explicit-on-linux"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "strategy='apple' on a non-macOS platform is legal; the strategy fully determines layout"
+
+  - name: "apple-auto-on-macos"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Auto-mode on macOS picks apple, the native layout"
+
+  - name: "apple-auto-on-darwin"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: null
+    platform: "darwin"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "darwin is an alias for macos"
+
+  - name: "apple-data-with-author"
+    function: data_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/Acme.MyApp"
+    description: "data_dir collapses to Application Support on Apple AND the dot-join applies — covers both the kind-aliasing and the author-join in one case"
+
+  - name: "apple-author-empty-string-treated-as-none"
+    function: config_dir
+    args: { app: "MyApp", author: "" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Empty-string author is equivalent to omitting author (see SPEC §App and author); the segment is just app, with no leading dot"
+
+  - name: "apple-cache-author-empty-treated-as-none"
+    function: cache_dir
+    args: { app: "MyApp", author: "" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Caches/MyApp"
+    description: "Empty-string author parity for cache — pins that the no-leading-dot rule isn't accidentally specific to config_dir's {base}"
+
+  - name: "apple-logs-author-empty-treated-as-none"
+    function: logs_dir
+    args: { app: "MyApp", author: "" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Logs/MyApp"
+    description: "Empty-string author parity for logs — guards against `Library/Logs/.MyApp` leak from an off-by-one impl"
+
+  - name: "apple-author-with-space-preserved"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme Corp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/Acme Corp.MyApp"
+    description: "Space in author is preserved verbatim through dot-join on Apple (mirror of windows-author-with-space in the project block)"
+
+  - name: "apple-author-with-backslash-preserved"
+    function: config_dir
+    args: { app: "MyApp", author: "a\\b" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/a\\b.MyApp"
+    description: "Backslash in author is NOT rejected on Apple — author is verbatim per SPEC §App and author (mirror of apple-author-with-slash-yields-two-segments, but on the backslash side)"
+
+  - name: "apple-app-cjk-passes-through-verbatim"
+    function: config_dir
+    args: { app: "日本語アプリ" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/日本語アプリ"
+    description: "Non-ASCII app names pass through verbatim on Apple too. Particularly important on HFS+/APFS where filesystem-level NFD normalisation is a real footgun; wheredirs does not normalise (SPEC §Out of scope)."
+
+  - name: "apple-author-with-slash-yields-two-segments"
+    function: config_dir
+    args: { app: "MyApp", author: "a/b" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice" }
+    output: "$HOME/Library/Application Support/a/b.MyApp"
+    description: "Apple does NOT validate or escape author; an embedded slash produces a multi-segment path. SPEC §App and author makes this explicit."
+
+# =============================================================================
+# Windows strategy
+# =============================================================================
+
+windows:
+  # ---- local (default) ------------------------------------------------------
+
+  - name: "win-config-local-default"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+
+  - name: "win-data-local-default"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+
+  - name: "win-cache-suffix"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp/Cache"
+
+  - name: "win-state-is-null"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Windows has no Known Folder for state; wheredirs returns null rather than aliasing to data"
+
+  - name: "win-state-with-author-still-null"
+    function: state_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Author has no effect on a null return — pins that impls cannot conditionally alias state_dir to data_dir when an author segment is supplied (mirror of apple-state-with-author-still-null)"
+
+  - name: "win-logs-suffix"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp/Logs"
+
+  - name: "win-runtime-is-null"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Windows has no Known Folder for runtime files; wheredirs returns null rather than inventing a path"
+
+  - name: "win-runtime-with-author-still-null"
+    function: runtime_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Author has no effect on a null return (mirror of apple-runtime parity)"
+
+  # ---- author segment -------------------------------------------------------
+
+  - name: "win-config-with-author"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp"
+
+  - name: "win-logs-with-author"
+    function: logs_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp/Logs"
+    description: "Author path-joined before app, Logs suffix appended last"
+
+  - name: "win-data-with-author"
+    function: data_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp"
+    description: "data_dir aliases to LOCALAPPDATA on Windows AND honours author — covers both in one case"
+
+  - name: "win-cache-with-author"
+    function: cache_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp/Cache"
+    description: "Segment ordering: author / app / Cache (author before app, suffix last) — pins the most error-prone Windows path shape"
+
+  - name: "win-author-empty-string-treated-as-none"
+    function: config_dir
+    args: { app: "MyApp", author: "" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "Empty-string author is equivalent to omitting author (see SPEC §App and author); the author segment and its separator are omitted entirely"
+
+  # ---- env-var fallback chain -----------------------------------------------
+
+  - name: "win-localappdata-unset-uses-userprofile"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: "C:/Users/alice"
+      HOME: ""
+    output: "$USERPROFILE/AppData/Local/MyApp"
+
+  - name: "win-no-userprofile-falls-to-home"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: ""
+      HOME: "C:/Users/alice"
+    output: "$HOME/AppData/Local/MyApp"
+
+  - name: "win-empty-localappdata-treated-as-unset"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: "C:/Users/alice"
+      HOME: ""
+    output: "$USERPROFILE/AppData/Local/MyApp"
+
+  - name: "win-userprofile-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: "C:/Users/alice/"
+      HOME: ""
+    output: "$USERPROFILE/AppData/Local/MyApp"
+    description: "USERPROFILE is in the trailing-slash strip list per SPEC §Graceful handling"
+
+  - name: "win-localappdata-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local/"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+
+  - name: "win-localappdata-trailing-backslash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local\\"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "Trailing backslash on LOCALAPPDATA is stripped/normalised before joining. Per SPEC §Windows env-var resolution: 'joined with a single forward slash regardless of whether the base ended in \\, /, or nothing'. The runner's `\\`→`/` and collapse-slashes steps cover this; this case pins the contract."
+
+  - name: "win-author-with-slash-yields-multiple-segments"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme/Sub" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/Sub/MyApp"
+    description: "Author containing a slash is NOT validated on Windows — it produces a multi-segment path verbatim. SPEC §App and author makes this explicit (mirror of apple-author-with-slash-yields-two-segments)."
+
+  - name: "win-config-app-with-space-preserved"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/My App"
+    description: "App name preserved verbatim on Windows (no mangling)"
+
+  # ---- auto-mode on windows -------------------------------------------------
+
+  - name: "win-auto-on-windows"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: null
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp"
+
+  # ---- non-absolute env vars used verbatim (Windows, unlike XDG) ------------
+
+  - name: "win-non-absolute-localappdata-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "relative/path"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "Windows env vars are NOT validated for absoluteness; non-empty values are used verbatim. Contrast with XDG which treats non-absolute as unset."
+
+  - name: "win-unc-localappdata-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "//server/share/AppData"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "UNC-style paths in env vars are valid Windows paths and used verbatim"
+
+  - name: "win-whitespace-only-localappdata-not-empty"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "   "
+      USERPROFILE: "C:/Users/alice"
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "A whitespace-only value is NOT empty per SPEC §Windows env-var resolution; it is used verbatim and the fallback chain does not fire"
+
+  # ---- windows strategy on a non-windows platform ---------------------------
+
+  - name: "win-explicit-on-macos"
+    function: config_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "macos"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme/MyApp"
+    description: "strategy='windows' on macOS is legal; cross-compile scenario"
+
+# =============================================================================
+# Single-folder strategy
+# =============================================================================
+
+single-folder:
+  - name: "single-config"
+    function: config_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-data-same-folder"
+    function: data_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-cache-same-folder"
+    function: cache_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-state-same-folder"
+    function: state_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-logs-same-folder"
+    function: logs_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-runtime-same-folder"
+    function: runtime_dir
+    args: { app: "myapp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-mangles-uppercase"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+    description: "Single-folder lowercases app"
+
+  - name: "single-mangles-spaces"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-app"
+    description: "Single-folder replaces whitespace runs with -"
+
+  - name: "single-collapses-multiple-spaces"
+    function: config_dir
+    args: { app: "My  App" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-app"
+    description: "Runs of whitespace collapse to a single dash, not two"
+
+  - name: "single-collapses-tabs-and-mixed-whitespace"
+    function: config_dir
+    args: { app: "My\tApp Name" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-app-name"
+    description: "Tabs are whitespace too; each run becomes one dash"
+
+  - name: "single-trims-leading-trailing-whitespace"
+    function: config_dir
+    args: { app: "  MyApp  " }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+    description: "Leading/trailing whitespace is trimmed before collapse, so no .-myapp- or .--myapp"
+
+  - name: "single-author-ignored"
+    function: config_dir
+    args: { app: "myapp", author: "Acme" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.myapp"
+
+  - name: "single-all-transforms-combined"
+    function: config_dir
+    args: { app: "  My\tLegacy   Tool  " }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my-legacy-tool"
+    description: "Trim + collapse-whitespace-runs + lowercase applied in that order to one input — smoke test all three transforms at once"
+
+  - name: "single-nbsp-not-collapsed"
+    function: config_dir
+    args: { app: "My App" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.my app"
+    description: "Whitespace handling is ASCII-only per SPEC §Single-folder; NBSP (U+00A0) is NOT collapsed, only ASCII space/tab/newline are. The character passes through to the lowercasing step verbatim."
+
+# =============================================================================
+# Errors
+# =============================================================================
+
+errors:
+  - name: "err-bad-strategy"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "freedesktop"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Unknown strategy value"
+
+  - name: "err-empty-strategy"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: ""
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Empty-string strategy is invalid (must be one of the four named strategies or None)"
+
+  - name: "err-empty-app"
+    function: config_dir
+    args: { app: "" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+
+  - name: "err-null-app"
+    function: config_dir
+    args: { app: null }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+
+  - name: "err-app-with-nul-byte"
+    function: config_dir
+    args: { app: "My\0App" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "App containing a NUL byte (U+0000) is rejected per SPEC §Error handling — would break path APIs on every platform"
+
+  - name: "err-app-with-forward-slash"
+    function: config_dir
+    args: { app: "vendor/app" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+
+  - name: "err-app-with-backslash"
+    function: config_dir
+    args: { app: "vendor\\app" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: "C:/Users/alice"
+      HOME: "/Users/alice"
+    raises: true
+    description: "App-name validation must fire before env resolution; all env pinned to non-empty values to prove the fallback chain is never consulted — validation must reject the bad app before any env lookup happens"
+
+  - name: "err-app-with-backslash-on-linux"
+    function: config_dir
+    args: { app: "vendor\\app" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Backslash in app is rejected on every platform, not just Windows"
+
+  - name: "err-which-strategy-unknown-platform"
+    function: which_strategy
+    args: ["plan9"]
+    raises: true
+
+  - name: "err-which-strategy-empty-string"
+    function: which_strategy
+    args: [""]
+    raises: true
+
+  - name: "err-which-strategy-null"
+    function: which_strategy
+    args: [null]
+    raises: true
+
+  - name: "err-app-whitespace-only"
+    function: config_dir
+    args: { app: "   " }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Whitespace-only app would mangle to empty under single-folder, producing the malformed path ~/. — rejected per SPEC §Error handling"
+
+  - name: "err-app-whitespace-only-xdg"
+    function: config_dir
+    args: { app: "   " }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Whitespace-only app rejection applies regardless of strategy per SPEC §Error handling — pins that XDG (which would otherwise pass `   ` through verbatim, yielding `$HOME/.config/   `) still raises"
+
+  - name: "err-app-tabs-only"
+    function: config_dir
+    args: { app: "\t\t" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Tabs-only app is ASCII-whitespace-only and rejected per SPEC §Error handling"
+
+  - name: "err-app-newlines-only"
+    function: config_dir
+    args: { app: "\n\n" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Newlines-only app is ASCII-whitespace-only and rejected per SPEC §Error handling"
+
+  - name: "err-app-dot"
+    function: config_dir
+    args: { app: "." }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "app = '.' is path traversal-adjacent and rejected per SPEC §Error handling"
+
+  - name: "err-app-dotdot"
+    function: config_dir
+    args: { app: ".." }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "app = '..' is path traversal and rejected per SPEC §Error handling"
+
+  - name: "err-app-leading-dot"
+    function: config_dir
+    args: { app: ".emacs" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "App starting with `.` is rejected per SPEC §Error handling. Under single-folder it would double up (`.emacs` → `~/..emacs`); rejecting globally avoids the cross-strategy footgun. Embedded dots (e.g. `com.acme.MyApp`) remain legal."
+
+  - name: "err-app-trailing-dot"
+    function: config_dir
+    args: { app: "MyApp." }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "App ending with `.` is rejected per SPEC §Error handling. Win32 file APIs silently strip trailing dots so `MyApp.` and `MyApp` collide on Windows; rejecting globally avoids the strategy-conditional behavior."
+
+  - name: "err-app-embedded-dot-is-legal"
+    function: config_dir
+    args: { app: "vim.tiny" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.config/vim.tiny"
+    description: "Embedded dots are NOT rejected — only leading/trailing positions. Positive case pinning the carve-out so an over-eager impl doesn't reject `com.acme.MyApp` style names."
+
+  - name: "err-strategy-uppercase-xdg"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "XDG"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "Strategy names are case-sensitive; uppercase variants are rejected per SPEC §Error handling"
+
+  - name: "err-windows-all-env-empty-raises"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: ""
+      HOME: ""
+    raises: true
+    description: "When LOCALAPPDATA, USERPROFILE, and HOME are all unset/empty, the fallback chain is exhausted and the implementation raises per SPEC §Windows env-var resolution"
+
+  - name: "err-xdg-home-empty-raises"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "" }
+    raises: true
+    description: "Under XDG, HOME being unset or empty is fatal — there is no fallback chain (unlike Windows). SPEC §XDG explicitly says raise."
+
+# =============================================================================
+# Project-specific test cases
+# =============================================================================
+# Add cases that exercise YOUR app's exact identity / platform mix here. These
+# are the cases most likely to catch a generated implementation getting the
+# wiring almost-but-not-quite right for your real-world use.
+#
+# Replace / extend these with cases matching the apps you actually plan to
+# use wheredirs in. Each case must declare function, args, strategy (or null),
+# platform, env, and output (or raises: true).
+
+project:
+  # A typical CLI tool: same app, all three auto-mode platforms.
+  - name: "wheredirs-self-config-linux"
+    function: config_dir
+    args: { app: "wheredirs" }
+    strategy: null
+    platform: "linux"
+    env: { HOME: "/home/dev" }
+    output: "$HOME/.config/wheredirs"
+
+  - name: "wheredirs-self-config-macos-auto"
+    function: config_dir
+    args: { app: "wheredirs" }
+    strategy: null
+    platform: "macos"
+    env: { HOME: "/Users/dev" }
+    output: "$HOME/Library/Application Support/wheredirs"
+    description: "macOS auto-mode picks the native Apple layout"
+
+  - name: "wheredirs-self-config-macos-xdg-opt-in"
+    function: config_dir
+    args: { app: "wheredirs" }
+    strategy: "xdg"
+    platform: "macos"
+    env: { HOME: "/Users/dev" }
+    output: "$HOME/.config/wheredirs"
+    description: "Cross-platform CLI tools that want one layout everywhere pass strategy='xdg' explicitly"
+
+  - name: "wheredirs-self-config-macos-apple"
+    function: config_dir
+    args: { app: "wheredirs" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/dev" }
+    output: "$HOME/Library/Application Support/wheredirs"
+
+  - name: "wheredirs-self-config-windows"
+    function: config_dir
+    args: { app: "wheredirs", author: "hasansezertasan" }
+    strategy: null
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/dev/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/hasansezertasan/wheredirs"
+
+  # Author with spaces preserved verbatim through path-join on Windows.
+  - name: "windows-author-with-space"
+    function: logs_dir
+    args: { app: "MyApp", author: "Acme Corp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/dev/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/Acme Corp/MyApp/Logs"
+    description: "Author with space + Logs suffix on Windows; space in author is preserved (Windows path-join is verbatim, no normalization)"
+
+  # Headless server: XDG state with a custom XDG_STATE_HOME.
+  - name: "server-state-custom-xdg"
+    function: state_dir
+    args: { app: "my-daemon" }
+    strategy: "xdg"
+    platform: "linux"
+    env:
+      HOME: "/var/lib/daemon"
+      XDG_STATE_HOME: "/var/lib/daemon/state"
+    output: "$XDG_STATE_HOME/my-daemon"
+
+  # Single-folder for a legacy dotfile-style tool.
+  - name: "dotfile-style-single-folder"
+    function: data_dir
+    args: { app: "Legacy Tool" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/dev" }
+    output: "$HOME/.legacy-tool"
+    description: "single-folder lowercases and dash-replaces spaces"
