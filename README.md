@@ -7,7 +7,7 @@ It tells you where standard application directories (config, cache, data, state,
 - the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - Apple's Standard Directories
 - Windows' Known Folder Locations
-- the Unix single-folder convention (e.g. `~/.my-app`; the strategy trims, lowercases, and collapses each run of ASCII whitespace to a single `-`, so `"My App"` → `.my-app`)
+- the Unix single-folder convention (e.g. `~/.my-app`; the strategy trims, collapses each run of ASCII whitespace to a single `-`, and lowercases — in that order, so `"My App"` → `.my-app`. See SPEC.md §Single-folder.)
 
 ## Using it
 
@@ -47,7 +47,7 @@ How `wheredirs` differs from other libraries that solve the same problem. New li
 - **Identity model.** etcetera takes three required strings: `top_level_domain`, `author`, `app_name`. It machine-generates the Apple bundle ID via `bundle_id() = "{tld}.{lowercase-dash(author)}.{dash(app_name)}"`. `wheredirs` takes two: `app` (required) and `author` (optional), and trusts the caller to pre-compose the dotted prefix if they want strict reverse-DNS (`author="com.acme"`). Less machinery, less normalisation; the caller does it themselves if they care.
 - **Apple `config_dir` location.** etcetera puts config under `~/Library/Preferences/`. `wheredirs` puts it under `~/Library/Application Support/`. Apple's docs distinguish: `Preferences/` is for plist files managed by NSUserDefaults, `Application Support/` is for arbitrary app data files. `wheredirs` callers write their own TOML/JSON/YAML config (not NSUserDefaults plists), so `Application Support/` is the more accurate destination. platformdirs makes the same choice.
 - **`single-folder` strategy.** Not in etcetera. In `wheredirs`.
-- **`logs_dir` exists.** etcetera doesn't implement `log_dir` at all (it returns `None` everywhere). `wheredirs` implements it: `~/Library/Logs/{seg}` on Apple, `<state>/{app}/logs` on XDG (a wheredirs extension), `%LOCALAPPDATA%/{author}/{app}/Logs` on Windows.
+- **`logs_dir` exists.** etcetera doesn't implement `log_dir` at all (it returns `None` everywhere). `wheredirs` implements it: `~/Library/Logs/{seg}` on Apple, `<state_base>/{app}/logs` on XDG (a wheredirs extension, where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}` — not the resolved `state_dir` output), `%LOCALAPPDATA%/{author}/{app}/Logs` on Windows.
 - **Convergences worth noting** (where `wheredirs` aligned with etcetera over platformdirs): both return `null` for `state_dir`/`runtime_dir` on platforms with no equivalent concept; neither has a `version` parameter; neither has a `roaming` flag.
 
 ### appdirs
@@ -66,4 +66,4 @@ The behavioral specification and the official platform guides it derives from ar
 
 ## Status
 
-v0.1.0-draft — spec ready for generation, refining test coverage as edge cases surface. See [`SPEC.md`](SPEC.md) and [`tests.yaml`](tests.yaml).
+v0.1.0-draft — spec ready for generation, refining test coverage as edge cases surface. See [`SPEC.md`](SPEC.md) (and [`SPEC.md` §Changelog](SPEC.md#changelog) for version history) and [`tests.yaml`](tests.yaml).

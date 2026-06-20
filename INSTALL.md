@@ -12,6 +12,12 @@ Implement the wheredirs library in [LANGUAGE].
 1. Read SPEC.md for the complete behavioral specification.
    Treat SPEC.md as the contract; do not infer behavior from
    platformdirs, etcetera, or any other reference library.
+   If SPEC.md and tests.yaml disagree on a graded case, the YAML
+   case wins (it is the executable conformance fixture). If SPEC
+   covers behavior that has no test case, follow SPEC. If you
+   find a real contradiction, STOP and surface it as a question
+   rather than guessing — silently picking either side will
+   produce a wrong implementation.
 2. Parse tests.yaml and generate a test file. Each top-level key
    (which_strategy, xdg, apple, windows, single-folder, errors,
    project) is a group of cases.
@@ -28,10 +34,37 @@ Implement the wheredirs library in [LANGUAGE].
    - Pure functions; no filesystem I/O, no directory creation.
    - Forward slashes in returned paths (the test runner normalises).
    - Auto-mode (strategy=None) picks the native layout on every
-     platform: xdg on Linux/BSD, apple on macOS/darwin, windows
-     on Windows. Auto never picks single-folder. Explicit strategy
-     overrides platform — strategy="xdg" on macOS returns XDG
-     paths, strategy="windows" on Linux returns Windows paths, etc.
+     platform: xdg on linux / freebsd / openbsd / netbsd /
+     dragonfly, apple on macos / darwin, windows on windows /
+     win32 (these exact lowercase strings — see SPEC.md
+     "which_strategy" for the full recognised set; any other
+     value raises). Auto never picks single-folder. Explicit
+     strategy overrides platform — strategy="xdg" on macOS
+     returns XDG paths, strategy="windows" on Linux returns
+     Windows paths, etc.
+   - Validate `app` BEFORE any env lookup. This list is
+     non-exhaustive — SPEC.md §Error Handling is authoritative —
+     but at minimum reject: None, empty string,
+     ASCII-whitespace-only, "." or "..", any value starting or
+     ending with "." (e.g. ".emacs", "MyApp."), any value
+     containing "/" or "\", and any value containing an embedded
+     NUL byte. These rules apply on EVERY strategy, not just
+     single-folder.
+   - Under the XDG strategy, `HOME` is required: if unset or
+     empty, raise (there is no fallback chain analogous to the
+     Windows LOCALAPPDATA → USERPROFILE → HOME chain). A
+     non-absolute `HOME` is used verbatim — the XDG
+     absoluteness-is-unset rule applies to XDG_*_HOME / XDG_*_DIR
+     variables, NOT to `HOME` itself (SPEC §XDG).
+   - On the XDG runtime fallback (when XDG_RUNTIME_DIR is unset,
+     empty, or non-absolute, runtime_dir resolves via cache_dir),
+     emit a warning at your language's idiomatic warning channel
+     (Python `warnings.warn`, Go `log.Printf` or a structured
+     logger, Rust `eprintln!` or `log::warn!`, etc.). The cache
+     fallback does NOT carry the 0700/user-owned/session-lifetime
+     guarantees a real XDG_RUNTIME_DIR does — see SPEC.md §XDG
+     security note. The return value is still fully determined;
+     the warning is additional.
    - Cases with `raises: true` must raise an idiomatic exception
      in your language.
    - Cases with `output: null` mean the function must return the
@@ -73,9 +106,9 @@ Implement the wheredirs library in [LANGUAGE].
 
 The prompt is deliberately language-agnostic but a few things should be picked per language so the generated impl is usable:
 
-- **Python**: package as a single module `wheredirs.py` plus a `pyproject.toml` (use `uv`); errors are `ValueError`; signatures like `config_dir(app: str, author: str | None = None, *, strategy: str | None = None) -> str | None`. The `str | None` return is uniform across all six resolvers (only `state_dir` / `runtime_dir` actually return `None` in practice — `config_dir` etc. either return a string or raise — but one signature shape keeps the public API uniform). Test runner via `pytest`.
+- **Python**: package as a single module `wheredirs.py` plus a `pyproject.toml` (use `uv`); errors are `ValueError`; signatures like `config_dir(app: str, author: str | None = None, *, strategy: str | None = None) -> str | None`. The `str | None` return is uniform across all six resolvers (only `state_dir` and `runtime_dir`, and only on Apple and Windows, actually return `None` in practice — every other resolver either returns a string or raises; in particular `runtime_dir` under XDG returns the cache fallback path, never `None` — but one signature shape keeps the public API uniform). Test runner via `pytest`.
 - **Rust**: a single crate with one `lib.rs`; errors via `Result<Option<String>, WheredirsError>` (no panics) so the `Ok(None)` arm represents the `output: null` cases and `Err(_)` represents `raises: true` cases. The test runner is `cargo test` reading `tests.yaml` via `serde_yaml`.
-- **Go**: package `wheredirs` with `(string, error)` returns — there is no exception equivalent, so "raises" cases assert the error is non-nil. **Use `error`, never `panic`** — panicking is not the Go idiom for "raises" and would break callers wrapping these functions. To represent `output: null` (Apple/Windows `state_dir`/`runtime_dir`) without conflating "no value" with "error", expose those as `(string, bool, error)` *or* return the empty string + `nil` error and document the convention in your generated README — pick one and apply it consistently. Test runner is `go test` reading via `gopkg.in/yaml.v3`.
+- **Go**: package `wheredirs` with `(string, bool, error)` returns — there is no exception equivalent, so "raises" cases assert the error is non-nil. **Use `error`, never `panic`** — panicking is not the Go idiom for "raises" and would break callers wrapping these functions. The middle `bool` (the `ok` flag) is `false` to represent `output: null` (Apple/Windows `state_dir`/`runtime_dir`) and `true` otherwise — this matches SPEC.md §At-a-glance which pins Go to "zero-value with `ok=false`" for null returns. Do not collapse to `(string, error)` with the empty string standing in for null: that conflates "no value" with "explicit empty" and the test runner cannot tell them apart. Test runner is `go test` reading via `gopkg.in/yaml.v3`.
 - **TypeScript / Node**: single file + a `package.json` (use `bun`); errors are `throw new Error(...)`; signatures return `string | null`. Test runner with `vitest` or `bun test`.
 
 For any language not listed: pick the conventional way to (a) package one module / one crate, (b) signal an error per the language's idiom, (c) run unit tests. Avoid inventing project structure beyond that.
@@ -94,26 +127,26 @@ When the runner compares an implementation's return value to a case's `output`:
 3. Collapse runs of `/` to a single `/` on both sides. Needed for cases that pin env values with trailing slashes (e.g. `HOME: "/home/alice/"` substituted into `"$HOME/.config/MyApp"` would otherwise compare as `/home/alice//.config/MyApp`).
 4. Strip any trailing `/` from both sides before comparison.
 
-The `args` schema per function:
+The `args` schema per function (canonical statement in SPEC.md §Test fixture format):
 
 - **which_strategy** cases use `args` as a **list**: `args: ["linux"]`. Call as `which_strategy(args[0])`.
 - **All six dir resolvers** use `args` as a **map**: `args: { app: "MyApp", author: "Acme" }`. Call as `<function>(**args)` (Python keyword-spread) or the equivalent in your language. `author` is optional — omit it if absent from the map.
 
 ## Verification
 
-After generation, the runner should pass **every** case in `tests.yaml`. The current case counts are indicative — they change whenever a case is added — but as of this writing:
+After generation, the runner should pass **every** case in `tests.yaml`. The case counts drift whenever cases are added or removed, so this table uses bucketed counts rather than exact numbers — they exist only to let you spot wildly off-base parsing (e.g. only 2 cases loading from `xdg`), not as a number to hit:
 
-| Group             | Cases (indicative) |
-| ----------------- | ------------------ |
-| `which_strategy`  |  12                |
-| `xdg`             |  33                |
-| `apple`           |  21                |
-| `windows`         |  22                |
-| `single-folder`   |  14                |
-| `errors`          |  16                |
-| `project`         |   8+               |
+| Group             | Cases (order of magnitude) |
+| ----------------- | -------------------------- |
+| `which_strategy`  | ~10                        |
+| `xdg`             | tens (largest group)       |
+| `apple`           | ~20                        |
+| `windows`         | ~20                        |
+| `single-folder`   | ~15                        |
+| `errors`          | ~15                        |
+| `project`         | a handful (user-extended)  |
 
-Don't gate the implementation on these numbers — gate it on "every case passes". The table exists so you can spot wildly off-base parsing (e.g. only 2 cases loading from `xdg`).
+Don't gate the implementation on these numbers — gate it on "every case passes".
 
 Add your own cases in the `project:` block at the bottom of `tests.yaml` — those are the ones most likely to catch a generated implementation that's *almost* right for your real apps.
 

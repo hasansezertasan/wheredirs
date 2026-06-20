@@ -282,7 +282,7 @@ which_strategy("windows") -> "windows"
 
 Matching is **case-sensitive**: `"linux"` is accepted, `"Linux"` raises. Implementations must not silently extend this set with their language's own aliases; if a caller passes `sys.platform` directly and it isn't in the table, the implementation should map it before calling (or accept the error).
 
-In `tests.yaml`, `which_strategy` cases use **positional** `args` (a list with one element): `args: ["linux"]`. All other functions use **map** form (`args: { app: "MyApp", author: "Acme" }`). This is the only shape distinction in the fixture schema.
+See §Test fixture format below for the canonical statement of how `which_strategy` cases encode `args` in `tests.yaml` (list form, one element).
 
 ## Error Handling
 
@@ -296,6 +296,7 @@ In `tests.yaml`, `which_strategy` cases use **positional** `args` (a list with o
    - `app` contains an embedded NUL byte (`\0`).
    - `app` consists entirely of ASCII whitespace (would mangle to the empty string under `single-folder`, producing the malformed path `~/.`).
    - `app` is `.` or `..` (would produce `~/..` etc. — outright path traversal).
+   - `app` starts or ends with `.` (e.g. `".emacs"`, `"MyApp."`). Rationale: under `single-folder` a leading dot doubles up (`.emacs` → `~/..emacs`, which reads as a traversal token even if filesystems don't interpret it as one); under Windows a trailing dot is silently stripped by Win32 file APIs, so `MyApp.` and `MyApp` collide. Embedded dots are legal (`com.acme.MyApp`, `vim.tiny` pass) — only the leading/trailing positions are rejected.
 3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, mixed-case variants such as `"Linux"` or `"MACOS"`, and unknown strings such as `"plan9"`. Recognition is case-sensitive on the strings in the table below.
 
 The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go, etc.). Tests assert *that* an error is raised, not its concrete type.
@@ -330,6 +331,10 @@ Each case in `tests.yaml` declares the full input environment. The expected `out
 ```
 
 For Windows cases, `env` may include `LOCALAPPDATA`, `USERPROFILE`, `HOME`. For XDG cases, any of `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`. Variables not declared in `env` are treated as unset.
+
+The fixture file also has a top-level `version:` key (e.g. `version: "0.1.0"`) that pins the spec version the cases conform to. Runners may use it as a sanity-check (refuse to run if the implementation targets an incompatible spec version) but the field has no per-case semantics and is not required for grading.
+
+**`args` shape per function (canonical):** `which_strategy` cases use `args` as a **list** (one element): `args: ["linux"]`. The six dir resolvers use `args` as a **map**: `args: { app: "MyApp", author: "Acme" }`. This is the only shape distinction in the fixture schema. INSTALL.md restates this for the generating agent; SPEC.md is the source of truth.
 
 ## Out of scope for v0.1
 
