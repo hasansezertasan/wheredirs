@@ -1,13 +1,13 @@
 # wheredirs
 
-Show where standard application directories (config, cache, data, state, logs, runtime) resolve to — for the current platform, or for any platform and convention you ask about:
+> **`wheredirs` is a ghost library** in the style of [whenwords](https://github.com/dbreunig/whenwords). There is no package to install. This repo ships a spec (`SPEC.md`) and a language-agnostic test suite (`tests.yaml`); your coding agent generates the library in the language you actually want.
+
+It tells you where standard application directories (config, cache, data, state, logs, runtime) resolve to — for the current platform, or for any platform and convention you ask about:
 
 - the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - Apple's Standard Directories
 - Windows' Known Folder Locations
 - the Unix single-folder convention (e.g. `~/.my-app`; the strategy trims, lowercases, and collapses each run of ASCII whitespace to a single `-`, so `"My App"` → `.my-app`)
-
-A **ghost library** in the style of [whenwords](https://github.com/dbreunig/whenwords): this repo ships a spec (`SPEC.md`) and language-agnostic test cases (`tests.yaml`), not an implementation. Point your coding agent at them and generate the library in the language you actually want.
 
 ## Using it
 
@@ -66,4 +66,4 @@ The behavioral specification and the official platform guides it derives from ar
 
 ## Status
 
-v0.1.0 — spec frozen, ready for generation. See [`SPEC.md`](SPEC.md) and [`tests.yaml`](tests.yaml).
+v0.1.0-draft — spec ready for generation, refining test coverage as edge cases surface. See [`SPEC.md`](SPEC.md) and [`tests.yaml`](tests.yaml).

@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Concretely that means:
 
 - There is no source code in this repo, and there should not be. No `src/`, no language-specific package manifests for the library itself.
-- The deliverables are: `SPEC.md` (behavior contract), `tests.yaml` (input/output cases), `INSTALL.md` (the prompt users paste into their agent), and optionally a `VERIFY.md` checklist. The `README.md` explains the model.
+- The deliverables are: `SPEC.md` (behavior contract), `tests.yaml` (input/output cases), and `INSTALL.md` (the prompt users paste into their agent, which also doubles as the verification checklist). The `README.md` explains the model.
 - "Tests" in this repo means *spec test cases* in YAML, not runnable code. There is nothing to `pytest` or `cargo test` here.
 
 If you find yourself about to add a Python module, a `pyproject.toml` for the library, or a CI matrix that runs code — stop. That work belongs in a downstream implementation repo (see `whenwords-examples` for the pattern), not here.

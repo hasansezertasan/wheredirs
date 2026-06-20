@@ -211,6 +211,60 @@ xdg:
     output: "$HOME/.config/MyApp"
     description: "Non-absolute XDG_CONFIG_HOME is treated as unset per XDG spec"
 
+  - name: "xdg-data-empty-env-is-unset"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "" }
+    output: "$HOME/.local/share/MyApp"
+    description: "Empty-string XDG_DATA_HOME treated as unset — parity with XDG_CONFIG_HOME (SPEC §XDG env-var resolution applies to all four XDG_*_HOME vars)"
+
+  - name: "xdg-data-relative-env-is-unset"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_DATA_HOME: "relative/share" }
+    output: "$HOME/.local/share/MyApp"
+    description: "Non-absolute XDG_DATA_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-cache-empty-env-is-unset"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "" }
+    output: "$HOME/.cache/MyApp"
+    description: "Empty-string XDG_CACHE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-cache-relative-env-is-unset"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_CACHE_HOME: "relative/cache" }
+    output: "$HOME/.cache/MyApp"
+    description: "Non-absolute XDG_CACHE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-state-empty-env-is-unset"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "" }
+    output: "$HOME/.local/state/MyApp"
+    description: "Empty-string XDG_STATE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
+  - name: "xdg-state-relative-env-is-unset"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice", XDG_STATE_HOME: "relative/state" }
+    output: "$HOME/.local/state/MyApp"
+    description: "Non-absolute XDG_STATE_HOME treated as unset — parity with XDG_CONFIG_HOME"
+
   - name: "xdg-cache-trailing-slash-stripped"
     function: cache_dir
     args: { app: "MyApp" }
@@ -644,6 +698,18 @@ windows:
     output: null
     description: "Windows has no Known Folder for state; wheredirs returns null rather than aliasing to data"
 
+  - name: "win-state-with-author-still-null"
+    function: state_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Author has no effect on a null return — pins that impls cannot conditionally alias state_dir to data_dir when an author segment is supplied (mirror of apple-state-with-author-still-null)"
+
   - name: "win-logs-suffix"
     function: logs_dir
     args: { app: "MyApp" }
@@ -666,6 +732,18 @@ windows:
       HOME: ""
     output: null
     description: "Windows has no Known Folder for runtime files; wheredirs returns null rather than inventing a path"
+
+  - name: "win-runtime-with-author-still-null"
+    function: runtime_dir
+    args: { app: "MyApp", author: "Acme" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "C:/Users/alice/AppData/Local"
+      USERPROFILE: ""
+      HOME: ""
+    output: null
+    description: "Author has no effect on a null return (mirror of apple-runtime parity)"
 
   # ---- author segment -------------------------------------------------------
 
@@ -1025,6 +1103,15 @@ errors:
     platform: "linux"
     env: { HOME: "/home/alice" }
     raises: true
+
+  - name: "err-app-with-nul-byte"
+    function: config_dir
+    args: { app: "My\0App" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    raises: true
+    description: "App containing a NUL byte (U+0000) is rejected per SPEC §Error handling — would break path APIs on every platform"
 
   - name: "err-app-with-forward-slash"
     function: config_dir
