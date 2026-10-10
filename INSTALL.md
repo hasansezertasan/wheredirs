@@ -14,10 +14,12 @@ Implement the wheredirs library in [LANGUAGE].
    platformdirs, etcetera, or any other reference library.
    If SPEC.md and tests.yaml disagree on a graded case, the YAML
    case wins (it is the executable conformance fixture). If SPEC
-   covers behavior that has no test case, follow SPEC. If you
-   find a real contradiction, STOP and surface it as a question
-   rather than guessing — silently picking either side will
-   produce a wrong implementation.
+   covers behavior that has no test case, follow SPEC. If the
+   YAML cannot settle a conflict — two YAML cases contradict
+   each other, or SPEC rules contradict each other on behavior
+   no case grades — STOP and surface it as a question rather
+   than guessing; silently picking either side will produce a
+   wrong implementation.
 2. Parse tests.yaml and generate a test file. Each top-level key
    (which_strategy, xdg, apple, windows, single-folder, errors,
    project) is a group of cases.
