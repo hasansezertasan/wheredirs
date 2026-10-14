@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "ghost-library-skills-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "hasansezertasan/ghost-library-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ghost-library-skills@ghost-library-skills-marketplace": true
+  }
+}
