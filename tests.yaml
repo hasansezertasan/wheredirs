@@ -561,6 +561,60 @@ xdg:
     output: "$XDG_STATE_HOME/MyApp/logs"
     description: "XDG_STATE_HOME is valid, so HOME is never consulted and an unset HOME does not raise (SPEC §XDG: HOME is read only when a path needs it)."
 
+  - name: "xdg-config-home-empty-but-xdg-config-home-valid"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_CONFIG_HOME: "/custom/config" }
+    output: "$XDG_CONFIG_HOME/MyApp"
+    description: "XDG_CONFIG_HOME is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
+  - name: "xdg-data-home-empty-but-xdg-data-home-valid"
+    function: data_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_DATA_HOME: "/custom/data" }
+    output: "$XDG_DATA_HOME/MyApp"
+    description: "XDG_DATA_HOME is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
+  - name: "xdg-cache-home-empty-but-xdg-cache-home-valid"
+    function: cache_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_CACHE_HOME: "/custom/cache" }
+    output: "$XDG_CACHE_HOME/MyApp"
+    description: "XDG_CACHE_HOME is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
+  - name: "xdg-state-home-empty-but-xdg-state-home-valid"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_STATE_HOME: "/custom/state" }
+    output: "$XDG_STATE_HOME/MyApp"
+    description: "XDG_STATE_HOME is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
+  - name: "xdg-logs-home-empty-but-xdg-state-home-valid"
+    function: logs_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_STATE_HOME: "/custom/logs" }
+    output: "$XDG_STATE_HOME/MyApp/logs"
+    description: "XDG_STATE_HOME is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
+  - name: "xdg-runtime-home-empty-but-xdg-runtime-dir-valid"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "", XDG_RUNTIME_DIR: "/custom/runtime" }
+    output: "$XDG_RUNTIME_DIR/MyApp"
+    description: "XDG_RUNTIME_DIR is valid, so an explicitly empty HOME is never consulted and does not raise (counterpart to the HOME-absent case)."
+
   - name: "xdg-home-unset-and-fallback-needed-raises"
     function: data_dir
     args: { app: "MyApp" }
