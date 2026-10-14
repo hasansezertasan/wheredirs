@@ -66,4 +66,4 @@ The behavioral specification and the official platform guides it derives from ar
 
 ## Status
 
-v0.1.0-draft — spec ready for generation, refining test coverage as edge cases surface. See [`SPEC.md`](SPEC.md) (and [`SPEC.md` §Changelog](SPEC.md#changelog) for version history) and [`tests.yaml`](tests.yaml).
+v0.1.0 — spec ready for generation, refining test coverage as edge cases surface. See [`SPEC.md`](SPEC.md) (and [`SPEC.md` §Changelog](SPEC.md#changelog) for version history) and [`tests.yaml`](tests.yaml).

@@ -118,7 +118,7 @@ Where `<state_base>` is `${XDG_STATE_HOME:-$HOME/.local/state}`. The `logs` segm
 2. If the variable is set but **not** an absolute path (does not start with `/`), per the XDG spec it must be treated as unset.
 3. Otherwise use the variable's value verbatim.
 
-**`HOME` is exempt from the absoluteness rule.** `HOME` is the host-provided base path, not an XDG variable. If `HOME` is unset or empty under the XDG strategy, the implementation **raises** — there is no fallback chain on Linux/BSD analogous to the Windows `LOCALAPPDATA → USERPROFILE → HOME` chain. A non-absolute `HOME` is used verbatim (which will usually produce a relative output path); validating `HOME` is the host's job, not `wheredirs`'.
+**`HOME` is exempt from the absoluteness rule.** `HOME` is the host-provided base path, not an XDG variable. `HOME` is read **only when a path actually needs it**. Under XDG, if a kind's `XDG_*` variable is valid (rules 1–3) its path never consults `HOME`, so an unset `HOME` does not raise; if the path falls back to `$HOME` (including the `runtime_dir` → `cache_dir` fallback) and `HOME` is unset or empty, the implementation **raises** — there is no fallback chain on Linux/BSD analogous to the Windows `LOCALAPPDATA → USERPROFILE → HOME` chain. The Apple and single-folder strategies root every path at `$HOME`, so an unset or empty `HOME` always raises there. A non-absolute `HOME` is used verbatim (which will usually produce a relative output path); validating `HOME` is the host's job, not `wheredirs`'.
 
 **wheredirs extension — runtime fallback.** XDG defines `XDG_RUNTIME_DIR` as having *no* default — applications "should fall back to a replacement directory with similar capabilities and print a warning". `wheredirs` chooses **`cache_dir(app, author, strategy="xdg")`** as that fallback when `XDG_RUNTIME_DIR` is unset, empty, or non-absolute. The fallback re-runs the full `cache_dir` resolution — `XDG_CACHE_HOME` validation (rules 1–3 above) and trailing-slash stripping all apply. Implementations should call the same internal resolver they use for `cache_dir`, not inline the path. The choice is deliberate: `cache_dir` is always resolvable from `$HOME`, agrees across implementations, and matches the "ephemeral, may disappear" semantics callers expect from runtime. `platformdirs` raises or returns a tempdir here, and `etcetera` has no runtime concept at all; `wheredirs` picks one answer so `tests.yaml` is portable. Implementations should emit a warning at the language's idiomatic warning channel; the return value is fully determined.
 
@@ -238,7 +238,7 @@ This is the only strategy that mangles `app`; the others use it verbatim. Non-wh
 ## App and author: normalisation rules
 
 - `app` is used verbatim under XDG, Apple, and Windows. Under single-folder it is trimmed + ASCII-whitespace-collapsed to `-` + lowercased (see Single-folder section).
-- `author` is verbatim where used. On Windows it is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. On Apple it is dot-joined with `app` verbatim — embedded dots, slashes, and backslashes are **not** rejected or escaped. An `author="a/b"` on Apple yields the segment `a/b.{app}`, which is two path components, not one — this is intentional, mirroring the Windows multi-segment behavior, and lets callers compose reverse-DNS sub-vendors without `wheredirs` second-guessing the shape. Callers who require a single bundle-ID segment must pre-validate.
+- `author` is verbatim where used and is not otherwise validated or trimmed: only `None` and the empty string omit it, so a whitespace-only `author` is a verbatim segment. On Windows it is **not** validated; an `author` containing `/` or `\` produces a multi-segment path. On Apple it is dot-joined with `app` verbatim — embedded dots, slashes, and backslashes are **not** rejected or escaped. An `author="a/b"` on Apple yields the segment `a/b.{app}`, which is two path components, not one — this is intentional, mirroring the Windows multi-segment behavior, and lets callers compose reverse-DNS sub-vendors without `wheredirs` second-guessing the shape. Callers who require a single bundle-ID segment must pre-validate.
 - For `author`: `None` (or the language's equivalent — `null`, `nil`, `undefined`, `Option::None`) means "omit this segment". Omitting the parameter entirely and passing `None` explicitly are equivalent. The empty string `""` is **also** treated as "omit this segment" — there is no Apple/Windows path where an empty author segment would be useful, and the alternative (`{author}.{app}` → `.{app}` or `{author}/{app}` → `/{app}`) produces malformed paths. (`app` itself is required; see Error Handling.)
 
 ### What each strategy ignores
@@ -297,14 +297,14 @@ See §Test fixture format below for the canonical statement of how `which_strate
    - `app` consists entirely of ASCII whitespace (would mangle to the empty string under `single-folder`, producing the malformed path `~/.`).
    - `app` is `.` or `..` (would produce `~/..` etc. — outright path traversal).
    - `app` starts or ends with `.` (e.g. `".emacs"`, `"MyApp."`). Rationale: under `single-folder` a leading dot doubles up (`.emacs` → `~/..emacs`, which reads as a traversal token even if filesystems don't interpret it as one); under Windows a trailing dot is silently stripped by Win32 file APIs, so `MyApp.` and `MyApp` collide. Embedded dots are legal (`com.acme.MyApp`, `vim.tiny` pass) — only the leading/trailing positions are rejected.
-3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, mixed-case variants such as `"Linux"` or `"MACOS"`, and unknown strings such as `"plan9"`. Recognition is case-sensitive on the strings in the table below.
+3. `which_strategy` called with anything not in the recognised-platform table — including `None`, `""`, mixed-case variants such as `"Linux"` or `"MACOS"`, and unknown strings such as `"plan9"`. Recognition is case-sensitive on the strings in the table in §`which_strategy` above.
 
 The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go, etc.). Tests assert *that* an error is raised, not its concrete type.
 
 ### Graceful handling
 
 1. `author` set on strategies that ignore it (XDG, single-folder): silently ignored.
-2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. Multiple trailing slashes are collapsed.
+2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. A trailing separator is `/` or `\` (the latter chiefly on Windows values), and multiple trailing separators are collapsed.
 
 ## Path output format
 
@@ -336,6 +336,14 @@ The fixture file also has a top-level `version:` key (e.g. `version: "0.1.0"`) t
 
 **`args` shape per function (canonical):** `which_strategy` cases use `args` as a **list** (one element): `args: ["linux"]`. The six dir resolvers use `args` as a **map**: `args: { app: "MyApp", author: "Acme" }`. This is the only shape distinction in the fixture schema. INSTALL.md restates this for the generating agent; SPEC.md is the source of truth.
 
+### Placeholder substitution
+
+The test runner substitutes `$VAR`-style placeholders in each case's `output` using the matching key in the case's `env` block. Substitution rules:
+
+1. Only keys present in the case's `env` are substituted. Variables not in `env` (e.g. `$HOMEBREW_PREFIX`) are left as literal text.
+2. Use **longest-match-first** ordering when one placeholder name is a prefix of another (e.g. substitute `$XDG_CONFIG_HOME` before `$HOME`). A naive `s/$HOME/.../` pass over the string is incorrect.
+3. After substitution, on both expected and actual: normalise `\` → `/`, then **collapse runs of `/` to a single `/`**, then strip any trailing `/`. The collapse step matters when an env value has a trailing slash (e.g. `HOME="/home/alice/"` substituted into `"$HOME/.config/MyApp"` produces `/home/alice//.config/MyApp` — collapsing to `/home/alice/.config/MyApp` is what makes trailing-slash test cases pass without each case having to pre-strip its env values).
+
 ## Out of scope for v0.1
 
 - System-wide / site-wide directories (`/etc`, `XDG_CONFIG_DIRS`, `%PROGRAMDATA%`, FHS paths like `/var/lib/<app>`).
@@ -365,14 +373,6 @@ The behavioral rules above are derived from these specifications and conventions
 - **Filesystem Hierarchy Standard (FHS)** — <https://www.pathname.com/fhs/>
   Referenced for the deferred `system` strategy. **Not** a reference for the `single-folder` strategy — FHS does not cover user-home layout.
 - **Unix dotfile convention (informal)** — example: ["File and directory naming conventions" on Unix Stack Exchange](https://unix.stackexchange.com/questions/15230/file-and-directory-naming-conventions). No authoritative spec exists for the `~/.app/` pattern; `wheredirs` codifies the common form (lowercase, dash-collapse, leading dot).
-
-## Test fixture format — placeholder substitution
-
-The test runner substitutes `$VAR`-style placeholders in each case's `output` using the matching key in the case's `env` block. Substitution rules:
-
-1. Only keys present in the case's `env` are substituted. Variables not in `env` (e.g. `$HOMEBREW_PREFIX`) are left as literal text.
-2. Use **longest-match-first** ordering when one placeholder name is a prefix of another (e.g. substitute `$XDG_CONFIG_HOME` before `$HOME`). A naive `s/$HOME/.../` pass over the string is incorrect.
-3. After substitution, on both expected and actual: normalise `\` → `/`, then **collapse runs of `/` to a single `/`**, then strip any trailing `/`. The collapse step matters when an env value has a trailing slash (e.g. `HOME="/home/alice/"` substituted into `"$HOME/.config/MyApp"` produces `/home/alice//.config/MyApp` — collapsing to `/home/alice/.config/MyApp` is what makes trailing-slash test cases pass without each case having to pre-strip its env values).
 
 ## Changelog
 

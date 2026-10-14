@@ -52,16 +52,20 @@ Implement the wheredirs library in [LANGUAGE].
      containing "/" or "\", and any value containing an embedded
      NUL byte. These rules apply on EVERY strategy, not just
      single-folder.
-   - Under the XDG strategy, `HOME` is required: if unset or
-     empty, raise (there is no fallback chain analogous to the
-     Windows LOCALAPPDATA → USERPROFILE → HOME chain). A
+   - `HOME` is read only when a path needs it. Under XDG, raise
+     if a path falls back to `$HOME` and it is unset or empty
+     (no chain analogous to the Windows LOCALAPPDATA →
+     USERPROFILE → HOME chain); a valid XDG_*_HOME / XDG_*_DIR
+     never consults it. Apple and single-folder always need
+     HOME, so they raise when it is unset or empty. A
      non-absolute `HOME` is used verbatim — the XDG
      absoluteness-is-unset rule applies to XDG_*_HOME / XDG_*_DIR
      variables, NOT to `HOME` itself (SPEC §XDG).
    - On the XDG runtime fallback (when XDG_RUNTIME_DIR is unset,
      empty, or non-absolute, runtime_dir resolves via cache_dir),
      emit a warning at your language's idiomatic warning channel
-     (Python `warnings.warn`, Go `log.Printf` or a structured
+     (best-effort: tests.yaml cannot observe warnings, so this is
+     not graded; Python `warnings.warn`, Go `log.Printf` or a structured
      logger, Rust `eprintln!` or `log::warn!`, etc.). The cache
      fallback does NOT carry the 0700/user-owned/session-lifetime
      guarantees a real XDG_RUNTIME_DIR does — see SPEC.md §XDG
@@ -90,10 +94,14 @@ Implement the wheredirs library in [LANGUAGE].
    They MUST read platform / env vars from the process environment
    for the public call path. For testability, expose a parallel
    internal entry point named exactly `_resolve(platform, env,
-   function_name, args)` (or `wheredirs._resolve` / module-private
-   equivalent in your language) that the test runner can call
-   with the case's pinned platform and env dict — do NOT
-   monkeypatch os.environ from the runner. Keep both paths thin
+   function_name, args, strategy)` (or `wheredirs._resolve` /
+   module-private equivalent in your language) that the test
+   runner can call with the case's pinned platform, env dict,
+   and strategy (`None` for auto-mode) — do NOT monkeypatch
+   os.environ from the runner. `which_strategy` cases have no
+   platform, env, or strategy: the runner calls the public
+   `which_strategy(args[0])` directly, and `_resolve` need not
+   handle it. Keep both paths thin
    wrappers around one pure resolver. The runner contract below
    assumes this name; if you pick a different one, document it
    in the generated README so a future test sweep can find it.
@@ -142,11 +150,11 @@ After generation, the runner should pass **every** case in `tests.yaml`. The cas
 | ----------------- | -------------------------- |
 | `which_strategy`  | ~10                        |
 | `xdg`             | tens (largest group)       |
-| `apple`           | ~20                        |
-| `windows`         | ~20                        |
+| `apple`           | tens                       |
+| `windows`         | tens                       |
 | `single-folder`   | ~15                        |
-| `errors`          | ~15                        |
-| `project`         | a handful (user-extended)  |
+| `errors`          | ~20                        |
+| `project`         | a handful (shipped examples; add your own) |
 
 Don't gate the implementation on these numbers — gate it on "every case passes".
 
@@ -157,7 +165,7 @@ Add your own cases in the `project:` block at the bottom of `tests.yaml` — tho
 For each case:
 
 1. Read `function`, `args`, `strategy`, `platform`, `env`.
-2. Call the implementation's internal entry point with `platform` and `env` as explicit inputs (per "Public API" rule above). Do NOT mutate `os.environ` from the runner — that creates cross-test bleed when cases run in parallel and forces the runner to know which env vars to clear between cases. The internal entry point's signature should take exactly the per-case inputs.
+2. Call the implementation's internal entry point with `platform`, `env`, and `strategy` as explicit inputs (per "Public API" rule above). Do NOT mutate `os.environ` from the runner — that creates cross-test bleed when cases run in parallel and forces the runner to know which env vars to clear between cases. The internal entry point's signature should take exactly the per-case inputs.
 3. `which_strategy` cases have no `platform` / `env` — `args` is a list with one element (`args: ["linux"]`); call as `which_strategy(args[0])`.
 4. If `raises: true`, assert calling the function raises an error in your language's idiomatic style. Don't assert on the error type or message — only that it raised.
 5. If `output: null`, assert the function returns the language's null/none value — no exception raised, no string returned.
