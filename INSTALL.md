@@ -57,7 +57,9 @@ Implement the wheredirs library in [LANGUAGE].
      (no chain analogous to the Windows LOCALAPPDATA →
      USERPROFILE → HOME chain); a valid XDG_*_HOME / XDG_*_DIR
      never consults it. Apple and single-folder always need
-     HOME, so they raise when it is unset or empty. A
+     HOME, so they raise when it is unset or empty (except
+     Apple's null-returning state_dir/runtime_dir, which never
+     read it). A
      non-absolute `HOME` is used verbatim — the XDG
      absoluteness-is-unset rule applies to XDG_*_HOME / XDG_*_DIR
      variables, NOT to `HOME` itself (SPEC §XDG).

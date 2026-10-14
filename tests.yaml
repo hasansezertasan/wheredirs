@@ -543,6 +543,15 @@ xdg:
     output: "$XDG_RUNTIME_DIR/MyApp"
     description: "A valid XDG_RUNTIME_DIR needs no HOME, so no fallback runs and nothing raises."
 
+  - name: "xdg-runtime-fallback-cache-home-valid-home-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { XDG_RUNTIME_DIR: "relative/run", XDG_CACHE_HOME: "/custom/cache" }
+    output: "$XDG_CACHE_HOME/MyApp"
+    description: "XDG_RUNTIME_DIR is non-absolute so runtime falls back to cache_dir; XDG_CACHE_HOME is valid, so HOME is still never consulted and nothing raises."
+
   - name: "xdg-home-root-slash"
     function: config_dir
     args: { app: "MyApp" }
@@ -550,7 +559,7 @@ xdg:
     platform: "linux"
     env: { HOME: "/" }
     output: "/.config/MyApp"
-    description: "HOME=\"/\" strips to the empty string; the join still yields /.config/MyApp, not //.config/MyApp and not an error."
+    description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not //.config/MyApp, a relative path, or an error."
 
 
 # =============================================================================
@@ -800,6 +809,24 @@ apple:
     env: {}
     raises: true
     description: "Every Apple path is rooted at $HOME, so an unset HOME raises."
+
+  - name: "apple-state-null-home-unset"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: {}
+    output: null
+    description: "Apple has no state concept: null is returned without consulting HOME, so an unset HOME does not raise."
+
+  - name: "apple-runtime-null-home-unset"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: {}
+    output: null
+    description: "Apple has no runtime concept: null is returned without consulting HOME, so an unset HOME does not raise."
 
   - name: "apple-author-whitespace-only-verbatim"
     function: config_dir
