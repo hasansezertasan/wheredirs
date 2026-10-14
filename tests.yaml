@@ -594,7 +594,7 @@ xdg:
     strategy: "xdg"
     platform: "linux"
     env: { HOME: "/" }
-    output: "/.config/MyApp"
+    output: "$HOME/.config/MyApp"
     description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not a relative path or an error. A stray // is not graded because the runner collapses slash runs."
 
 
@@ -863,6 +863,33 @@ apple:
     env: {}
     output: null
     description: "Apple has no runtime concept: null is returned without consulting HOME, so an unset HOME does not raise."
+
+  - name: "apple-home-empty-raises"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "" }
+    raises: true
+    description: "An empty-string HOME is treated like an unset one: every Apple path is rooted at $HOME, so it raises (not a root or relative path)."
+
+  - name: "apple-state-null-home-empty"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "" }
+    output: null
+    description: "Apple state is null without consulting HOME, so an empty HOME does not raise."
+
+  - name: "apple-runtime-null-home-empty"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "" }
+    output: null
+    description: "Apple runtime is null without consulting HOME, so an empty HOME does not raise."
 
   - name: "apple-author-whitespace-only-verbatim"
     function: config_dir
@@ -1335,6 +1362,15 @@ single-folder:
     env: { HOME: "/home/alice" }
     output: "$HOME/.my app"
     description: "Whitespace handling is ASCII-only per SPEC §Single-folder; NBSP (U+00A0) is NOT collapsed, only ASCII space/tab/newline are. The character passes through to the lowercasing step verbatim."
+
+  - name: "single-folder-home-empty-raises"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "" }
+    raises: true
+    description: "An empty-string HOME is treated like an unset one for single-folder: it raises rather than producing /.myapp."
 
   - name: "single-folder-home-unset-raises"
     function: config_dir
