@@ -1283,6 +1283,24 @@ windows:
     output: "$LOCALAPPDATA/Acme/MyApp"
     description: "strategy='windows' on macOS is legal; cross-compile scenario"
 
+  - name: "win-state-null-env-empty"
+    function: state_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env: {}
+    output: null
+    description: "Windows has no state concept: null is returned without resolving LOCALAPPDATA/USERPROFILE/HOME, so a fully empty environment does not raise."
+
+  - name: "win-runtime-null-env-empty"
+    function: runtime_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env: {}
+    output: null
+    description: "Windows has no runtime concept: null is returned without resolving LOCALAPPDATA/USERPROFILE/HOME, so a fully empty environment does not raise."
+
   - name: "win-author-whitespace-only-verbatim"
     function: config_dir
     args: { app: "MyApp", author: "  " }
