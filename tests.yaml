@@ -595,7 +595,7 @@ xdg:
     platform: "linux"
     env: { HOME: "/" }
     output: "/.config/MyApp"
-    description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not //.config/MyApp, a relative path, or an error."
+    description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not a relative path or an error. A stray // is not graded because the runner collapses slash runs."
 
 
 # =============================================================================

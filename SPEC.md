@@ -304,7 +304,7 @@ The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go,
 ### Graceful handling
 
 1. `author` set on strategies that ignore it (XDG, single-folder): silently ignored.
-2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. A trailing separator is `/` or `\` (the latter chiefly on Windows values), and multiple trailing separators are collapsed. A value made only of separators (e.g. `HOME="/"`) strips to the empty string, which is the filesystem root: the join then yields `/.config/MyApp`, never `//.config/MyApp`, a relative path, or an error (the value is not treated as unset).
+2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. A trailing separator is `/` or `\` (the latter chiefly on Windows values), and multiple trailing separators are collapsed. A value made only of separators (e.g. `HOME="/"`) strips to the empty string, which is the filesystem root: the join then yields `/.config/MyApp`, not a relative path or an error (the value is not treated as unset). Because the runner collapses `/` runs before comparing (§Placeholder substitution), a stray `//` is not graded; implementations should still avoid emitting one.
 
 ## Path output format
 
