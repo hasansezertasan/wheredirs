@@ -110,6 +110,15 @@ xdg:
     output: "$HOME/.config/MyApp"
     description: "SPEC §XDG rule 1: whitespace-only is NOT empty, so it reaches rule 2, fails the absoluteness check (does not start with /), and is treated as unset"
 
+  - name: "xdg-home-trailing-backslash-kept"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env: { HOME: "/home/alice\\" }
+    output: "$HOME/.config/MyApp"
+    description: "Under XDG a trailing `\\` on HOME is an ordinary filename character and is kept (SPEC §Graceful handling). Substitution is strategy-aware, so the expected path is /home/alice\\/.config/MyApp, which normalises to /home/alice//.config/MyApp; an implementation that strips the backslash fails."
+
   - name: "xdg-config-default"
     function: config_dir
     args: { app: "MyApp" }
@@ -668,6 +677,15 @@ xdg:
 # =============================================================================
 
 apple:
+  - name: "apple-home-trailing-backslash-kept"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice\\" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "Under Apple a trailing `\\` on HOME is kept verbatim; the expected path normalises to /Users/alice//Library/Application Support/MyApp. An implementation that strips the backslash fails."
+
   - name: "apple-home-trailing-slash-stripped"
     function: config_dir
     args: { app: "MyApp" }
@@ -1496,6 +1514,15 @@ single-folder:
     env: { HOME: "/home/alice" }
     output: "$HOME/.\u0130stanbul"
     description: "No locale-sensitive folding: U+0130 (İ) passes through unchanged while the ASCII letters STANBUL are lowercased. Unicode-aware lowercasing would turn İ into 'i' + U+0307 or into 'i'."
+
+  - name: "single-home-trailing-backslash-kept"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice\\" }
+    output: "$HOME/.myapp"
+    description: "Under single-folder a trailing `\\` on HOME is kept verbatim; the expected path normalises to /home/alice//.myapp. An implementation that strips the backslash fails."
 
   - name: "single-home-trailing-slash-stripped"
     function: config_dir

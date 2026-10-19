@@ -134,7 +134,7 @@ There are two distinct things the runner does with `env`. Don't conflate them:
 
 When the runner compares an implementation's return value to a case's `output`:
 
-1. Substitute `$VAR` placeholders in `output` using `env`, longest name first (e.g. `$XDG_CONFIG_HOME` before `$HOME`). Substitute each value with `\` normalised to `/` and **all trailing `/` stripped** (`HOME: "/home/alice/"` substitutes as `/home/alice`; `HOME: "/"` as the empty string).
+1. Substitute `$VAR` placeholders in `output` using `env`, longest name first (e.g. `$XDG_CONFIG_HOME` before `$HOME`). Substitute each value with its trailing separators stripped per the case's effective strategy (`strategy`, or `which_strategy(platform)` when `strategy` is `null`): under `windows`, normalise `\` → `/` and strip all trailing `/`; under `xdg`, `apple`, and `single-folder`, strip only trailing `/` and keep a trailing `\` (`HOME: "/home/alice/"` → `/home/alice`; `HOME: "/"` → the empty string; under `xdg`, `HOME: "/home/alice\"` stays as is).
 2. Normalise both sides to forward slashes (`s.replace("\\", "/")`). Skipping this step will spuriously fail every Windows case if the implementation returns native separators.
 3. Strip any trailing `/` from both sides before comparison.
 4. Do **not** collapse runs of `/`. A stray `//` in the implementation's output (e.g. from joining an unstripped base) must fail, and a leading UNC prefix must survive exactly.
