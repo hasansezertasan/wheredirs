@@ -660,7 +660,7 @@ xdg:
     platform: "linux"
     env: { HOME: "/" }
     output: "$HOME/.config/MyApp"
-    description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not a relative path or an error. A stray // is not graded because the runner collapses slash runs."
+    description: "HOME=\"/\" strips to the empty string, i.e. the filesystem root (SPEC §Graceful handling); the join yields /.config/MyApp, not a relative path or an error. The runner does not collapse slash runs, so an implementation emitting `//.config/MyApp` fails."
 
 
 # =============================================================================
@@ -675,7 +675,7 @@ apple:
     platform: "macos"
     env: { HOME: "/Users/alice/" }
     output: "$HOME/Library/Application Support/MyApp"
-    description: "HOME trailing slash is stripped before joining under Apple (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
+    description: "HOME trailing slash is stripped before joining under Apple (SPEC §Graceful handling). The runner does not collapse `/` runs, so an unstripped base (stray `//`) fails."
 
   - name: "apple-config"
     function: config_dir
@@ -1212,7 +1212,7 @@ windows:
       USERPROFILE: ""
       HOME: ""
     output: "$LOCALAPPDATA/MyApp"
-    description: "Trailing backslash on LOCALAPPDATA is stripped/normalised before joining. Per SPEC §Windows env-var resolution: 'joined with a single forward slash regardless of whether the base ended in \\, /, or nothing'. The runner's `\\`→`/` and collapse-slashes steps cover this; this case pins the contract."
+    description: "Trailing backslash on LOCALAPPDATA is stripped/normalised before joining. Per SPEC §Windows env-var resolution: 'joined with a single forward slash regardless of whether the base ended in \\, /, or nothing'. The runner normalises `\\`→`/` and strips trailing `/` but does not collapse runs, so an unstripped base fails; this case pins the contract."
 
   - name: "win-author-with-slash-yields-multiple-segments"
     function: config_dir
@@ -1275,7 +1275,19 @@ windows:
       USERPROFILE: ""
       HOME: ""
     output: "$LOCALAPPDATA/MyApp"
-    description: "UNC-style paths in env vars are valid Windows paths and used verbatim. NOTE: not graded for the leading `//` — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that collapses the UNC prefix still passes. What this case does grade is that a non-drive-letter value is not rejected or routed to the fallback chain."
+    description: "UNC-style paths in env vars are valid Windows paths and used verbatim. The leading `//` must survive: the runner does not collapse `/` runs, so an implementation that reduces it to `/` fails."
+
+  - name: "win-unc-backslash-localappdata-verbatim"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: "\\\\server\\share\\AppData"
+      USERPROFILE: ""
+      HOME: ""
+    output: "$LOCALAPPDATA/MyApp"
+    description: "Backslash-form UNC prefix (\\\\server\\share) is preserved; after the runner's `\\`→`/` normalisation it must compare as //server/share/AppData/MyApp, so collapsing the leading pair fails."
 
   - name: "win-home-trailing-backslash-stripped"
     function: config_dir
@@ -1287,7 +1299,7 @@ windows:
       USERPROFILE: ""
       HOME: "C:\\Users\\alice\\"
     output: "$HOME/AppData/Local/MyApp"
-    description: "HOME in the Windows fallback chain is in the trailing-separator strip list, and for this strategy `\\` counts as a separator (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
+    description: "HOME in the Windows fallback chain is in the trailing-separator strip list, and for this strategy `\\` counts as a separator (SPEC §Graceful handling). The runner does not collapse `/` runs, so an unstripped base (stray `//`) fails."
 
   - name: "win-whitespace-only-localappdata-not-empty"
     function: config_dir
@@ -1492,7 +1504,7 @@ single-folder:
     platform: "linux"
     env: { HOME: "/home/alice/" }
     output: "$HOME/.myapp"
-    description: "HOME trailing slash is stripped before joining under single-folder (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
+    description: "HOME trailing slash is stripped before joining under single-folder (SPEC §Graceful handling). The runner does not collapse `/` runs, so an unstripped base (stray `//`) fails."
 
   - name: "single-folder-home-empty-raises"
     function: config_dir
