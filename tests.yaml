@@ -675,7 +675,7 @@ apple:
     platform: "macos"
     env: { HOME: "/Users/alice/" }
     output: "$HOME/Library/Application Support/MyApp"
-    description: "HOME trailing slash is stripped before joining under Apple (SPEC §Graceful handling)"
+    description: "HOME trailing slash is stripped before joining under Apple (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
 
   - name: "apple-config"
     function: config_dir
@@ -1287,7 +1287,7 @@ windows:
       USERPROFILE: ""
       HOME: "C:\\Users\\alice\\"
     output: "$HOME/AppData/Local/MyApp"
-    description: "HOME in the Windows fallback chain is in the trailing-separator strip list, and for this strategy `\\` counts as a separator (SPEC §Graceful handling)"
+    description: "HOME in the Windows fallback chain is in the trailing-separator strip list, and for this strategy `\\` counts as a separator (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
 
   - name: "win-whitespace-only-localappdata-not-empty"
     function: config_dir
@@ -1492,7 +1492,7 @@ single-folder:
     platform: "linux"
     env: { HOME: "/home/alice/" }
     output: "$HOME/.myapp"
-    description: "HOME trailing slash is stripped before joining under single-folder (SPEC §Graceful handling)"
+    description: "HOME trailing slash is stripped before joining under single-folder (SPEC §Graceful handling). NOTE: not graded for the strip itself — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that forgets to strip still passes. This case only guards against rejection or misrouting of such a value."
 
   - name: "single-folder-home-empty-raises"
     function: config_dir
