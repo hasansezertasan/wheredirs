@@ -160,6 +160,8 @@ After generation, the runner should pass **every** case in `tests.yaml`. The cas
 
 Don't gate the implementation on these numbers — gate it on "every case passes".
 
+Dispatch each case on its `function` field, not on the group it sits in: the `errors` group also contains `which_strategy` cases (`err-which-strategy-*`), which use the list-form `args` and have no `platform`, `env`, or `strategy`. The top-level `version` key is a scalar, not a group — skip it.
+
 Add your own cases in the `project:` block at the bottom of `tests.yaml` — those are the ones most likely to catch a generated implementation that's *almost* right for your real apps.
 
 ## Per-case runner steps

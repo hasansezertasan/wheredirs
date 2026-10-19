@@ -99,6 +99,17 @@ which_strategy:
 xdg:
   # ---- defaults (no XDG_* set) -----------------------------------------------
 
+  - name: "xdg-config-whitespace-only-var-rejected"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "xdg"
+    platform: "linux"
+    env:
+      HOME: "/home/alice"
+      XDG_CONFIG_HOME: "   "
+    output: "$HOME/.config/MyApp"
+    description: "SPEC §XDG rule 1: whitespace-only is NOT empty, so it reaches rule 2, fails the absoluteness check (does not start with /), and is treated as unset"
+
   - name: "xdg-config-default"
     function: config_dir
     args: { app: "MyApp" }
@@ -657,6 +668,15 @@ xdg:
 # =============================================================================
 
 apple:
+  - name: "apple-home-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "apple"
+    platform: "macos"
+    env: { HOME: "/Users/alice/" }
+    output: "$HOME/Library/Application Support/MyApp"
+    description: "HOME trailing slash is stripped before joining under Apple (SPEC §Graceful handling)"
+
   - name: "apple-config"
     function: config_dir
     args: { app: "MyApp" }
@@ -1255,7 +1275,19 @@ windows:
       USERPROFILE: ""
       HOME: ""
     output: "$LOCALAPPDATA/MyApp"
-    description: "UNC-style paths in env vars are valid Windows paths and used verbatim"
+    description: "UNC-style paths in env vars are valid Windows paths and used verbatim. NOTE: not graded for the leading `//` — the runner collapses `/` runs on both sides (SPEC §Placeholder substitution), so an implementation that collapses the UNC prefix still passes. What this case does grade is that a non-drive-letter value is not rejected or routed to the fallback chain."
+
+  - name: "win-home-trailing-backslash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "windows"
+    platform: "windows"
+    env:
+      LOCALAPPDATA: ""
+      USERPROFILE: ""
+      HOME: "C:\\Users\\alice\\"
+    output: "$HOME/AppData/Local/MyApp"
+    description: "HOME in the Windows fallback chain is in the trailing-separator strip list, and for this strategy `\\` counts as a separator (SPEC §Graceful handling)"
 
   - name: "win-whitespace-only-localappdata-not-empty"
     function: config_dir
@@ -1428,12 +1460,39 @@ single-folder:
 
   - name: "single-nbsp-not-collapsed"
     function: config_dir
-    args: { app: "My App" }
+    args: { app: "My\u00A0App" }
     strategy: "single-folder"
     platform: "linux"
     env: { HOME: "/home/alice" }
-    output: "$HOME/.my app"
-    description: "Whitespace handling is ASCII-only per SPEC §Single-folder; NBSP (U+00A0) is NOT collapsed, only ASCII space/tab/newline are. The character passes through to the lowercasing step verbatim."
+    output: "$HOME/.my\u00A0app"
+    description: "Whitespace handling is ASCII-only per SPEC §Single-folder; NBSP (U+00A0) is NOT collapsed, only ASCII space/tab/newline are. The character passes through to the lowercasing step verbatim. Written as an escape so editors and formatters cannot normalise it to a plain space."
+
+  - name: "single-lowercase-ascii-only"
+    function: config_dir
+    args: { app: "\u00C9COLE" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.\u00C9cole"
+    description: "Lowercasing is ASCII-only per SPEC §Single-folder: U+00C9 (É) is NOT folded to U+00E9 (é); only A-Z are lowercased. An implementation using a Unicode-aware lower()/toLowerCase() fails this case."
+
+  - name: "single-lowercase-no-turkish-folding"
+    function: config_dir
+    args: { app: "\u0130STANBUL" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice" }
+    output: "$HOME/.\u0130stanbul"
+    description: "No locale-sensitive folding: U+0130 (İ) passes through unchanged while the ASCII letters STANBUL are lowercased. Unicode-aware lowercasing would turn İ into 'i' + U+0307 or into 'i'."
+
+  - name: "single-home-trailing-slash-stripped"
+    function: config_dir
+    args: { app: "MyApp" }
+    strategy: "single-folder"
+    platform: "linux"
+    env: { HOME: "/home/alice/" }
+    output: "$HOME/.myapp"
+    description: "HOME trailing slash is stripped before joining under single-folder (SPEC §Graceful handling)"
 
   - name: "single-folder-home-empty-raises"
     function: config_dir
