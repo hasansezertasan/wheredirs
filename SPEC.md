@@ -282,6 +282,8 @@ which_strategy("windows") -> "windows"
 
 Matching is **case-sensitive**: `"linux"` is accepted, `"Linux"` raises. Implementations must not silently extend this set with their language's own aliases; if a caller passes `sys.platform` directly and it isn't in the table, the implementation should map it before calling (or accept the error).
 
+**Public call path.** When a directory resolver is called with `strategy=None` through the public API (not `_resolve`), the implementation reads the host's platform identifier and must map it onto a name in the table above (for example, Python `sys.platform` values such as `freebsd14` map to `freebsd`). If the host identifier cannot be mapped to any table entry (for example `plan9`), auto-mode **raises**, exactly as `which_strategy` does for an unrecognised name; it does not guess a strategy. An explicit `strategy` never consults the platform, so it is unaffected. This rule is not graded by `tests.yaml`, which always supplies `platform` explicitly.
+
 See §Test fixture format below for the canonical statement of how `which_strategy` cases encode `args` in `tests.yaml` (list form, one element).
 
 ## Error Handling
@@ -304,7 +306,7 @@ The exception type is language-idiomatic (`ValueError` in Python, `Error` in Go,
 ### Graceful handling
 
 1. `author` set on strategies that ignore it (XDG, single-folder): silently ignored.
-2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. A trailing separator is `/`; for values read by the Windows strategy (`LOCALAPPDATA`, `USERPROFILE`, and `HOME` in its fallback chain) it is also `\`. Under XDG, Apple, and single-folder a trailing `\` is an ordinary filename character and is left alone (XDG rule 3: verbatim). **Not graded by `tests.yaml`:** the runner converts `\` to `/` before comparing (§Placeholder substitution), so no fixture can tell a kept trailing `\` from a stripped one on those strategies. Making the normalisation strategy-aware was considered and deferred as a runner-contract change out of proportion to the edge case; conforming implementations must still follow the rule. Multiple trailing separators are collapsed. A value made only of separators (e.g. `HOME="/"`) strips to the empty string, which is the filesystem root: the join then yields `/.config/MyApp`, not a relative path or an error (the value is not treated as unset). Because the runner collapses `/` runs before comparing (§Placeholder substitution), a stray `//` is not graded; implementations should still avoid emitting one.
+2. Trailing slash on **any** path-valued env var read by the spec — `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`, `LOCALAPPDATA`, `USERPROFILE` — is stripped before joining. A trailing separator is `/`; for values read by the Windows strategy (`LOCALAPPDATA`, `USERPROFILE`, and `HOME` in its fallback chain) it is also `\`. Under XDG, Apple, and single-folder a trailing `\` is an ordinary filename character and is left alone (XDG rule 3: verbatim). **Graded:** the runner's substitution is strategy-aware (§Placeholder substitution), so `HOME="/home/alice\"` under `xdg` must yield `/home/alice\/.config/MyApp`, which compares as `/home/alice//.config/MyApp`; an implementation that strips the backslash fails. A leading UNC prefix (`//` or `\\`) in `LOCALAPPDATA`, `USERPROFILE`, or `HOME` is preserved verbatim and **is graded**, since the runner does not collapse `/` runs (§Placeholder substitution). Multiple trailing separators are collapsed. A value made only of separators (e.g. `HOME="/"`) strips to the empty string, which is the filesystem root: the join then yields `/.config/MyApp`, not a relative path or an error (the value is not treated as unset). Because the runner does not collapse `/` runs (§Placeholder substitution), a stray `//` in the result — including one caused by an unstripped trailing separator — is a graded failure.
 
 ## Path output format
 
@@ -342,7 +344,8 @@ The test runner substitutes `$VAR`-style placeholders in each case's `output` us
 
 1. Only keys present in the case's `env` are substituted. Variables not in `env` (e.g. `$HOMEBREW_PREFIX`) are left as literal text.
 2. Use **longest-match-first** ordering when one placeholder name is a prefix of another (e.g. substitute `$XDG_CONFIG_HOME` before `$HOME`). A naive `s/$HOME/.../` pass over the string is incorrect.
-3. After substitution, on both expected and actual: normalise `\` → `/`, then **collapse runs of `/` to a single `/`**, then strip any trailing `/`. The collapse step matters when an env value has a trailing slash (e.g. `HOME="/home/alice/"` substituted into `"$HOME/.config/MyApp"` produces `/home/alice//.config/MyApp` — collapsing to `/home/alice/.config/MyApp` is what makes trailing-slash test cases pass without each case having to pre-strip its env values).
+3. The substituted value is the env value with its trailing separators stripped by the **same rule the case's effective strategy applies** (the case's `strategy`, or the one `which_strategy(platform)` returns when `strategy` is `null`): under `windows`, normalise `\` → `/` first and then strip all trailing `/`; under `xdg`, `apple`, and `single-folder`, strip only trailing `/` and leave any trailing `\` in place (it is an ordinary filename character there, §Graceful handling). So `HOME="/home/alice/"` substitutes as `/home/alice`, `HOME="/"` as the empty string, and under `xdg` `HOME="/home/alice\"` stays `/home/alice\`. This is what lets a case pin an env value with a trailing separator without pre-stripping it and without the expected path acquiring a stray `//`.
+4. After substitution, on both expected and actual: normalise `\` → `/`, then strip any trailing `/`. **Runs of `/` are NOT collapsed**: an implementation that emits a stray `//` (for example by joining an unstripped base to a `/`-prefixed segment) fails, and a leading UNC prefix (`//server/share`, or `\\server\share` normalised) must survive exactly.
 
 ## Out of scope for v0.1
 
@@ -376,4 +379,11 @@ The behavioral rules above are derived from these specifications and conventions
 
 ## Changelog
 
-- **v0.1.0** (2026-06-09): Initial specification.
+- **v0.1.0** (unreleased; no tag has been cut, so the entries below all describe the same version, newest last):
+  - 2026-06-09: Initial specification.
+  - 2026-06-10: Aligned strategies with platform conventions; dropped the `roaming` flag and the `version` parameter.
+  - 2026-06-20: `app` starting or ending with `.` now raises; coverage expanded.
+  - 2026-10-11 to 2026-10-14: Pinned `HOME` handling (read only when needed; exempt from the absoluteness rule) and the `_resolve` strategy input.
+  - 2026-10-19: Pinned ASCII-only lowercasing with fixtures; documented the public auto-mode behavior on unmapped host platforms; added fixtures for trailing-separator, UNC-prefix, and whitespace-only env edge cases. **Runner-contract change:** the comparison no longer collapses runs of `/`; placeholder values are substituted with trailing separators stripped per the case's effective strategy (`\` is stripped only under `windows`), so unstripped bases, stray `//`, a wrongly stripped trailing `\` on non-Windows strategies, and dropped UNC prefixes are now graded.
+
+  Because v0.1.0 is unreleased, `version: "0.1.0"` in `tests.yaml` identifies the current revision of the contract. Cut a tag and bump the version before the next behavior change after a release.

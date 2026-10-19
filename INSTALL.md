@@ -134,10 +134,10 @@ There are two distinct things the runner does with `env`. Don't conflate them:
 
 When the runner compares an implementation's return value to a case's `output`:
 
-1. Substitute `$VAR` placeholders in `output` using `env`, longest name first (e.g. `$XDG_CONFIG_HOME` before `$HOME`).
+1. Substitute `$VAR` placeholders in `output` using `env`, longest name first (e.g. `$XDG_CONFIG_HOME` before `$HOME`). Substitute each value with its trailing separators stripped per the case's effective strategy (`strategy`, or `which_strategy(platform)` when `strategy` is `null`): under `windows`, normalise `\` → `/` and strip all trailing `/`; under `xdg`, `apple`, and `single-folder`, strip only trailing `/` and keep a trailing `\` (`HOME: "/home/alice/"` → `/home/alice`; `HOME: "/"` → the empty string; under `xdg`, `HOME: "/home/alice\"` stays as is).
 2. Normalise both sides to forward slashes (`s.replace("\\", "/")`). Skipping this step will spuriously fail every Windows case if the implementation returns native separators.
-3. Collapse runs of `/` to a single `/` on both sides. Needed for cases that pin env values with trailing slashes (e.g. `HOME: "/home/alice/"` substituted into `"$HOME/.config/MyApp"` would otherwise compare as `/home/alice//.config/MyApp`).
-4. Strip any trailing `/` from both sides before comparison.
+3. Strip any trailing `/` from both sides before comparison.
+4. Do **not** collapse runs of `/`. A stray `//` in the implementation's output (e.g. from joining an unstripped base) must fail, and a leading UNC prefix must survive exactly.
 
 The `args` schema per function (canonical statement in SPEC.md §Test fixture format):
 
@@ -160,6 +160,8 @@ After generation, the runner should pass **every** case in `tests.yaml`. The cas
 
 Don't gate the implementation on these numbers — gate it on "every case passes".
 
+Dispatch each case on its `function` field, not on the group it sits in: the `errors` group also contains `which_strategy` cases (`err-which-strategy-*`), which use the list-form `args` and have no `platform`, `env`, or `strategy`. The top-level `version` key is a scalar, not a group — skip it.
+
 Add your own cases in the `project:` block at the bottom of `tests.yaml` — those are the ones most likely to catch a generated implementation that's *almost* right for your real apps.
 
 ## Per-case runner steps
@@ -172,7 +174,7 @@ For each case:
 4. If `raises: true`, assert calling the function raises an error in your language's idiomatic style. Don't assert on the error type or message — only that it raised.
 5. If `output: null`, assert the function returns the language's null/none value — no exception raised, no string returned.
 6. Otherwise, call the function with the args and compare to `output` after substituting `$VAR` placeholders from `env`.
-7. Apply the normalisation steps from the "Test runner contract" section above: `\` → `/`, collapse `/+`, strip trailing `/`.
+7. Apply the normalisation steps from the "Test runner contract" section above: `\` → `/`, strip trailing `/`, no collapsing.
 
 ## Out of scope (don't let your agent invent these)
 
